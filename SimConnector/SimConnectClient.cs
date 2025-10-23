@@ -1,15 +1,42 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.FlightSimulator.SimConnect;
+using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.FlightSimulator.SimConnect;
-using Microsoft.Extensions.Logging;
+using System.Linq;
+using System.Collections.Generic;
+using static SimConnector.SimConnectClient;
 
 /*
 Example usage with curl:
 
-curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE","unit": "","index": 0}'
-curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE", "value": 2}'
+Single variable operations:
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX","unit": "Number","index": 0}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1","unit": "Percent"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:0","unit": ""}'
+
+curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE", "value": 3}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX", "value": 1}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}'
+
+Multiple variable operations:
+curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE","unit": "","index": 0}, {"simVarName": "FLAPS HANDLE INDEX","unit": "Number","index": 0}]'
+curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE"}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:0"}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}]'
+// Switch to cockpit and set flaps to 2
+curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "FLAPS HANDLE INDEX", "unit": "Number", "value": 2}]'
+cockipt instrument view 3:
+curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}]'
+curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:0", "value": 2}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}]'
+
+
+Events:
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "TAXI_LIGHTS_SET", "value": 1}'
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "AXIS_PAN_HEADING", "value": 90}'
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "EYEPOINT_RESET"}'
 */
 
 namespace SimConnector
@@ -23,9 +50,17 @@ namespace SimConnector
         private SimConnectWindow simConnectWindow;
         private readonly SimConnectIdManager idManager = new SimConnectIdManager();
         private ManualResetEvent _windowCreatedEvent = new ManualResetEvent(false);
-        // Timer to periodically receive messages from SimConnect
         private System.Threading.Timer _messageTimer;
-        private const int DISPATCH_INTERVAL_MS = 100; // 100ms for responsiveness
+        private const int DISPATCH_INTERVAL_MS = 100;
+
+        // Request tracking for parallel operations
+        private class PendingRequest
+        {
+            public TaskCompletionSource<double?> TaskCompletion { get; set; } = new();
+            public SimVarReference Reference { get; set; }
+            public volatile bool IsCompleted;  // Track completion state
+        }
+        private readonly ConcurrentDictionary<uint, PendingRequest> _pendingRequests = new();
 
         public enum DEFINITION
         {
@@ -38,21 +73,29 @@ namespace SimConnector
             Struct1
         };
 
-        // Indicates current connection status.
+        public enum EVENT
+        {
+            Dummy = 0
+        };
+
+        // Define an enum for Notification Groups
+        public enum GROUP_ID
+        {
+            GROUP0 = 0 // Using 0 as the standard default group ID
+        }
+
         public bool IsConnected { get; private set; } = false;
 
-        // Constructor: sets up message window and attempts initial connection.
         public SimConnectClient(ILogger<SimConnectClient> logger)
         {
             _logger = logger;
             simConnectWindow = new SimConnectWindow();
-            simConnectWindow.Create(); // Start the hidden message loop
+            simConnectWindow.Create();
             TryConnect();
         }
 
         public void Disconnect()
         {
-            // Stop the timer first
             _messageTimer?.Dispose();
             _messageTimer = null;
 
@@ -61,10 +104,9 @@ namespace SimConnector
                 _simConnect.Dispose();
                 _simConnect = null;
             }
-            simConnectWindow.Destroy(); // Stop the message loop
+            simConnectWindow.Destroy();
         }
 
-        // Refreshes the SimConnect connection (disconnects and reconnects)
         public void RefreshConnection()
         {
             if (_simConnect != null)
@@ -74,7 +116,6 @@ namespace SimConnector
             TryConnect();
         }
 
-        // Attempts to establish a SimConnect connection and set up event handlers
         private void TryConnect()
         {
             _logger.LogInformation("Attempting SimConnect connection.");
@@ -83,23 +124,18 @@ namespace SimConnector
                 IntPtr hWnd = simConnectWindow.Handle;
                 _simConnect = new SimConnect("MSFS Web API", hWnd, WM_USER_SIMCONNECT, null, 0);
                 IsConnected = true;
-                // Register event handlers
-                _simConnect.OnRecvOpen += new SimConnect.RecvOpenEventHandler(SimConnect_OnRecvOpen);
-                _simConnect.OnRecvQuit += new SimConnect.RecvQuitEventHandler(SimConnect_OnRecvQuit);
-                _simConnect.OnRecvException += new SimConnect.RecvExceptionEventHandler(SimConnect_OnRecvException);
-                _simConnect.OnRecvSimobjectDataBytype += new SimConnect.RecvSimobjectDataBytypeEventHandler(SimConnect_OnRecvSimobjectDataBytype);
+
+                _simConnect.OnRecvOpen += SimConnect_OnRecvOpen;
+                _simConnect.OnRecvQuit += SimConnect_OnRecvQuit;
+                _simConnect.OnRecvException += SimConnect_OnRecvException;
+                _simConnect.OnRecvSimobjectData += OnRecvSimVar; // Centralized handler
 
                 _logger.LogInformation("SimConnect connection established, starting message timer.");
 
-                // Start the timer to periodically receive messages
                 _messageTimer = new System.Threading.Timer(
-                    // The method to call
                     _ => ReceiveSimConnectMessages(),
-                    // State (not used here)
                     null,
-                    // Due time (start immediately)
                     0,
-                    // Period (repeat every 10ms)
                     DISPATCH_INTERVAL_MS
                 );
             }
@@ -115,31 +151,60 @@ namespace SimConnector
             }
         }
 
-        // Receives messages from SimConnect (called by timer)
+        // EnsureConnected: attempt a single immediate reconnect if disconnected
+        private bool EnsureConnected()
+        {
+            if (IsConnected && _simConnect != null)
+                return true;
+
+            _logger.LogInformation("Connection lost. Attempting reconnect on demand.");
+            TryConnect();
+
+            // Wait briefly for connection to establish
+            int waited = 0;
+            const int waitStep = 50;
+            const int maxWait = 500; // ms
+            while (!IsConnected && waited < maxWait)
+            {
+                Thread.Sleep(waitStep);
+                waited += waitStep;
+            }
+
+            if (!IsConnected)
+                _logger.LogWarning("Reconnect attempt failed.");
+
+            return IsConnected;
+        }
+
         public void ReceiveSimConnectMessages()
         {
             try
             {
-                // The SimConnect DLL is designed to handle multi-threading safety when 
-                // calling ReceiveMessage() from a separate thread than the one that 
-                // created the connection, provided the underlying Win32 message pump is active.
                 _simConnect?.ReceiveMessage();
             }
             catch (COMException ex)
             {
-                // Handle disconnection or other critical COM errors
-                Console.WriteLine($"Error receiving SimConnect messages: {ex.Message}");
+                // Detect disconnection and perform cleanup to prevent repeated exceptions
+                _logger.LogWarning(ex, "COMException from ReceiveMessage - treating as disconnect.");
+                OnDisconnectDetected("COMException in ReceiveMessage");
             }
         }
 
         private void SimConnect_OnRecvException(SimConnect sender, SIMCONNECT_RECV_EXCEPTION data)
         {
             _logger.LogError($"SimConnect_OnRecvException: {data.dwException}, SendID: {data.dwSendID}, Index: {data.dwIndex}");
+            // Clean up pending request if it exists
+            if (_pendingRequests.TryRemove(data.dwSendID, out var request))
+            {
+                request.TaskCompletion.TrySetException(new Exception($"SimConnect exception: {data.dwException}"));
+            }
         }
 
         private void SimConnect_OnRecvQuit(SimConnect sender, SIMCONNECT_RECV data)
         {
             _logger.LogInformation("SimConnect_OnRecvQuit");
+            // MSFS requested quit - treat as disconnect
+            OnDisconnectDetected("Received Quit from SimConnect");
         }
 
         private void SimConnect_OnRecvOpen(SimConnect sender, SIMCONNECT_RECV_OPEN data)
@@ -147,27 +212,27 @@ namespace SimConnector
             _logger.LogInformation("SimConnect_OnRecvOpen");
         }
 
-        // Handles SimVar data responses
-        private void SimConnect_OnRecvSimobjectDataBytype(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA_BYTYPE data)
+        // Centralized handler for SimVar responses
+        private void OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
         {
-            _logger.LogDebug("SimConnect_OnRecvSimobjectDataBytype");
+            uint requestId = data.dwRequestID;
+            _logger.LogInformation($"OnRecvSimVar called. RequestID: {requestId}");
 
-            uint iRequest = data.dwRequestID;
-            uint iObject = data.dwObjectID;
-
-            if (idManager.TryGetReference((int)iRequest, out SimVarReference? reference))
+            if (_pendingRequests.TryRemove(requestId, out var request))
             {
-                var simVarData = (double)data.dwData[0];
-                _logger.LogInformation($"Received data for RequestID: {iRequest}, SimVar: {reference.SimVarName}, Value: {simVarData}");
-                // Data can be processed or stored here if needed
+                if (!request.IsCompleted)  // Only process if not already completed
+                {
+                    var simVarData = (double)data.dwData[0];
+                    _logger.LogInformation($"SimVar value received for {request.Reference.SimVarName}: {simVarData}");
+                    request.TaskCompletion.TrySetResult(simVarData);
+                }
             }
             else
             {
-                _logger.LogWarning($"Received data for unknown RequestID: {iRequest}");
+                _logger.LogWarning($"Received data for unknown RequestID: {requestId}");
             }
         }
 
-        // Registers SimVar definition with SimConnect if not already registered
         private DEFINITION EnsureSimVarRegistered(SimVarReference reference)
         {
             var (uniqueId, isNew) = idManager.GetOrAssignId(reference);
@@ -188,14 +253,25 @@ namespace SimConnector
             return defineId;
         }
 
-        // Gets a SimVar value asynchronously
         private int _nextRequestId = 0;
         public async Task<SimVarReference?> GetSimVarValueAsync(SimVarReference reference)
         {
             _logger.LogInformation($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Index={reference?.Index}");
-            if (!IsConnected || _simConnect == null || reference == null)
+            if (reference == null)
             {
-                _logger.LogWarning("SimConnect not connected or reference is null.");
+                _logger.LogWarning("Reference is null.");
+                return null;
+            }
+
+            if (!EnsureConnected())
+            {
+                _logger.LogWarning("SimConnect not connected after reconnect attempt.");
+                return null;
+            }
+
+            if (_simConnect == null)
+            {
+                _logger.LogWarning("SimConnect instance is null after reconnect.");
                 return null;
             }
 
@@ -203,50 +279,68 @@ namespace SimConnector
             int localRequestId = Interlocked.Increment(ref _nextRequestId);
             var requestId = (REQUEST)localRequestId;
 
-            var tcs = new TaskCompletionSource<double?>();
-            void OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
+            // Create request tracking object
+            var pendingRequest = new PendingRequest
             {
-                _logger.LogInformation($"OnRecvSimVar called. RequestID: {data.dwRequestID}");
-                if (data.dwRequestID == (uint)requestId)
-                {
-                    var simVarData = (double)data.dwData[0];
-                    _logger.LogInformation($"SimVar value received: {simVarData}");
-                    tcs.TrySetResult(simVarData);
-                    _simConnect.OnRecvSimobjectData -= OnRecvSimVar;
-                }
-                else
-                {
-                    _logger.LogWarning($"Received data for unexpected RequestID: {data.dwRequestID}");
-                }
-            }
+                Reference = reference,
+            };
 
-            _logger.LogInformation($"Requesting SimVar data from SimConnect with requestId {localRequestId}...");
-            _simConnect.OnRecvSimobjectData += OnRecvSimVar;
-            _simConnect.RequestDataOnSimObject(requestId, defineId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD.ONCE, SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0);
+            // Add to pending requests before making the request
+            _pendingRequests.TryAdd((uint)localRequestId, pendingRequest);
 
-            var task = await Task.WhenAny(tcs.Task, Task.Delay(2000));
-            double? value = null;
-            if (task == tcs.Task)
+            try
             {
-                _logger.LogInformation($"Returning SimVar value: {tcs.Task.Result}");
-                value = tcs.Task.Result;
+                _simConnect.RequestDataOnSimObject(requestId, defineId, SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_PERIOD.ONCE, SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0);
+
+                // Wait for response or timeout
+                var timeoutTask = Task.Delay(2000);
+                var completedTask = await Task.WhenAny(pendingRequest.TaskCompletion.Task, timeoutTask);
+
+                if (completedTask == timeoutTask)
+                {
+                    pendingRequest.IsCompleted = true;  // Mark as completed
+                    _pendingRequests.TryRemove((uint)localRequestId, out _);
+                    return reference with { Value = double.NaN };
+                }
+
+                var value = await pendingRequest.TaskCompletion.Task;
+                pendingRequest.IsCompleted = true;  // Mark as completed
+                return reference with { Value = value ?? double.NaN };
             }
-            else
+            catch (COMException ex)
             {
-                _logger.LogWarning("Timeout waiting for SimVar value.");
-                _simConnect.OnRecvSimobjectData -= OnRecvSimVar;
+                _logger.LogWarning(ex, "COMException during GetSimVarValueAsync - treating as disconnect.");
+                OnDisconnectDetected("COMException during GetSimVarValueAsync");
+                _pendingRequests.TryRemove((uint)localRequestId, out _);
+                return reference with { Value = double.NaN };
             }
-            // Return a new SimVarReference with the value set
-            return reference with { Value = value ?? double.NaN };
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting SimVar value");
+                _pendingRequests.TryRemove((uint)localRequestId, out _);
+                return reference with { Value = double.NaN };
+            }
         }
 
-        // Sets a SimVar value asynchronously
         public async Task<SimVarReference?> SetSimVarValueAsync(SimVarReference reference)
         {
             _logger.LogInformation($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Index={reference?.Index}, Value={reference?.Value}");
-            if (!IsConnected || _simConnect == null || reference == null)
+            if (reference == null)
             {
-                _logger.LogWarning("SimConnect not connected or reference is null.");
+                _logger.LogWarning("Reference is null.");
+                return null;
+            }
+
+            if (!EnsureConnected())
+            {
+                _logger.LogWarning("SimConnect not connected after reconnect attempt.");
+                return null;
+            }
+
+            if (_simConnect == null)
+            {
+                _logger.LogWarning("SimConnect instance is null after reconnect.");
                 return null;
             }
 
@@ -254,39 +348,214 @@ namespace SimConnector
             int localRequestId = Interlocked.Increment(ref _nextRequestId);
             var requestId = (REQUEST)localRequestId;
 
-            var tcs = new TaskCompletionSource<bool>();
-            void OnSetSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
+            // Create request tracking object
+            var pendingRequest = new PendingRequest
             {
-                _logger.LogInformation($"OnSetSimVar called. RequestID: {data.dwRequestID}");
-                if (data.dwRequestID == (uint)requestId)
-                {
-                    tcs.TrySetResult(true);
-                    _simConnect.OnRecvSimobjectData -= OnSetSimVar;
-                }
-                else
-                {
-                    _logger.LogWarning($"Received data for unexpected RequestID: {data.dwRequestID}");
-                }
-            }
+                Reference = reference,
+            };
 
-            _logger.LogInformation($"Setting SimVar value via SimConnect with requestId {localRequestId}...");
-            _simConnect.OnRecvSimobjectData += OnSetSimVar;
-            _simConnect.SetDataOnSimObject(defineId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_DATA_SET_FLAG.DEFAULT, reference.Value);
-            // Optionally, request confirmation (not all SimVars support confirmation)
-            _simConnect.RequestDataOnSimObject(requestId, defineId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD.ONCE, SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0);
+            _pendingRequests.TryAdd((uint)localRequestId, pendingRequest);
 
-            var task = await Task.WhenAny(tcs.Task, Task.Delay(2000));
-            if (task == tcs.Task && tcs.Task.Result)
+            try
             {
-                _logger.LogInformation($"SetSimVarValueAsync succeeded for SimVar: {reference.SimVarName}");
+                _simConnect.SetDataOnSimObject(defineId, SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, reference.Value);
+
+                // Request confirmation
+                _simConnect.RequestDataOnSimObject(requestId, defineId, SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_PERIOD.ONCE, SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0);
+
+                var timeoutTask = Task.Delay(2000);
+                var completedTask = await Task.WhenAny(pendingRequest.TaskCompletion.Task, timeoutTask);
+
+                if (completedTask == timeoutTask)
+                {
+                    _logger.LogWarning("Timeout waiting for SimVar set confirmation.");
+                    _pendingRequests.TryRemove((uint)localRequestId, out _);
+                    return null;
+                }
+
+                await pendingRequest.TaskCompletion.Task;
                 return reference;
             }
-            else
+            catch (COMException ex)
             {
-                _logger.LogWarning("Timeout or failure setting SimVar value.");
-                _simConnect.OnRecvSimobjectData -= OnSetSimVar;
+                _logger.LogWarning(ex, "COMException during SetSimVarValueAsync - treating as disconnect.");
+                OnDisconnectDetected("COMException during SetSimVarValueAsync");
+                _pendingRequests.TryRemove((uint)localRequestId, out _);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting SimVar value");
+                _pendingRequests.TryRemove((uint)localRequestId, out _);
                 return null;
             }
         }
+
+        // Gets multiple SimVar values asynchronously (parallel execution)
+        public async Task<List<SimVarReference>> GetMultipleSimVarValuesAsync(List<SimVarReference> references)
+        {
+            _logger.LogInformation($"GetMultipleSimVarValuesAsync called with {references?.Count ?? 0} references.");
+            if (references == null || references.Count == 0)
+            {
+                _logger.LogWarning("References list is null/empty.");
+                return new List<SimVarReference>();
+            }
+
+            if (!EnsureConnected())
+            {
+                _logger.LogWarning("SimConnect not connected after reconnect attempt.");
+                return new List<SimVarReference>();
+            }
+
+            // Execute all get requests in parallel since order doesn't matter
+            var tasks = references.Select(reference => GetSimVarValueAsync(reference)).ToList();
+            var results = await Task.WhenAll(tasks);
+
+            // Filter out null results and return the list
+            var validResults = results.Where(r => r != null).Cast<SimVarReference>().ToList();
+            _logger.LogInformation($"GetMultipleSimVarValuesAsync completed. Retrieved {validResults.Count} out of {references.Count} values.");
+            return validResults;
+        }
+
+        // Sets multiple SimVar values asynchronously (sequential execution)
+        public async Task<List<SimVarReference>> SetMultipleSimVarValuesAsync(List<SimVarReference> references)
+        {
+            _logger.LogInformation($"SetMultipleSimVarValuesAsync called with {references?.Count ?? 0} references.");
+            if (references == null || references.Count == 0)
+            {
+                _logger.LogWarning("References list is null/empty.");
+                return new List<SimVarReference>();
+            }
+
+            if (!EnsureConnected())
+            {
+                _logger.LogWarning("SimConnect not connected after reconnect attempt.");
+                return new List<SimVarReference>();
+            }
+
+            var results = new List<SimVarReference>();
+
+            // Execute set requests sequentially to maintain order
+            foreach (var reference in references)
+            {
+                var result = await SetSimVarValueAsync(reference);
+                if (result != null)
+                {
+                    results.Add(result);
+                }
+                else
+                {
+                    _logger.LogWarning($"Failed to set SimVar: {reference.SimVarName}. Continuing with next variable.");
+                }
+            }
+
+            _logger.LogInformation($"SetMultipleSimVarValuesAsync completed. Successfully set {results.Count} out of {references.Count} values.");
+            return results;
+        }
+
+        private readonly ConcurrentDictionary<string, int> _registeredEvents = new();
+        private int _nextEventId = 1; // Start from 1 as 0 is Dummy
+
+        public void SendEvent(EventReference eventReference)
+        {
+            if (eventReference == null)
+            {
+                _logger.LogWarning("EventReference is null.");
+                return;
+            }
+
+            if (!EnsureConnected())
+            {
+                _logger.LogWarning("SimConnect not connected after reconnect attempt. Event not sent.");
+                return;
+            }
+
+            try
+            {
+                // Check if the event is already registered
+                if (!_registeredEvents.TryGetValue(eventReference.Name, out var simEventNum))
+                {
+                    simEventNum = _nextEventId++;
+                    _logger.LogInformation($"Registering {eventReference.Name} under id {simEventNum}");
+                    _simConnect.MapClientEventToSimEvent((EVENT)simEventNum, eventReference.Name);
+                    _simConnect.AddClientEventToNotificationGroup(
+                        // Notification Group ID (a custom enum/int for grouping events)
+                        (GROUP_ID)0,
+                        // Your custom event ID
+                        (EVENT)simEventNum,
+                        false
+                    );
+
+                    // Register the event with a new ID
+                    _registeredEvents.TryAdd(eventReference.Name, simEventNum);
+                }
+
+                _simConnect.TransmitClientEvent(SimConnect.SIMCONNECT_OBJECT_ID_USER, (EVENT)simEventNum, eventReference.Value, (GROUP_ID)0, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+                _logger.LogInformation($"Sent event: {eventReference.Name}");
+            }
+            catch (COMException ex)
+            {
+                _logger.LogWarning(ex, "COMException during SendEvent - treating as disconnect.");
+                OnDisconnectDetected("COMException during SendEvent");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error sending event: {eventReference.Name}");
+            }
+
+        }
+
+        private void OnDisconnectDetected(string reason)
+        {
+            _logger.LogWarning($"OnDisconnectDetected called: {reason}. Cleaning up resources.");
+
+            if (!IsConnected) return; // Already disconnected
+
+            IsConnected = false;
+
+            // Dispose the message timer
+            _messageTimer?.Dispose();
+            _messageTimer = null;
+
+            // Clear registered events
+            _registeredEvents.Clear();
+            _nextEventId = 1; // Reset event ID counter
+
+            // Clear request ID manager
+            idManager.Clear();
+
+            // Reset pending requests
+            foreach (var request in _pendingRequests)
+            {
+                request.Value.TaskCompletion.TrySetCanceled();
+            }
+            _pendingRequests.Clear();
+
+            // Unsubscribe from SimConnect events and dispose SimConnect instance
+            if (_simConnect != null)
+            {
+                try
+                {
+                    _simConnect.OnRecvOpen -= SimConnect_OnRecvOpen;
+                    _simConnect.OnRecvQuit -= SimConnect_OnRecvQuit;
+                    _simConnect.OnRecvException -= SimConnect_OnRecvException;
+                    _simConnect.OnRecvSimobjectData -= OnRecvSimVar;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error unsubscribing SimConnect events");
+                }
+                finally
+                {
+                    _simConnect.Dispose();
+                    _simConnect = null;
+                }
+            }
+
+            _logger.LogInformation("Cleanup complete. Resources released.");
+        }
     }
+
 }

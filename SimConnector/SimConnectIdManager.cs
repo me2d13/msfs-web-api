@@ -48,5 +48,15 @@ namespace SimConnector
         {
             return _idToDefinition.TryGetValue(id, out reference);
         }
+
+        /// <summary>
+        /// Clears all registered IDs. Used when SimConnect connection is lost.
+        /// </summary>
+        public void Clear()
+        {
+            _definitionToId.Clear();
+            _idToDefinition.Clear();
+            nextId = 0;
+        }
     }
 }
