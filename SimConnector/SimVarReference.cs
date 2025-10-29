@@ -14,10 +14,6 @@ namespace SimConnector
         /// </summary>
         public string Unit { get; init; } = string.Empty;
         /// <summary>
-        /// The index for the SimVar (if applicable).
-        /// </summary>
-        public uint Index { get; init; } = 0;
-        /// <summary>
         /// The value of the SimVar (used for set operations or responses).
         /// </summary>
         public double Value { get; init; } = 0.0;

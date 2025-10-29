@@ -45,8 +45,7 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/get' \
   -H 'Content-Type: application/json' \
   -d '{
     "simVarName": "PLANE ALTITUDE",
-    "unit": "feet",
-    "index": 0
+    "unit": "feet"
   }'
 ```
 
@@ -72,18 +71,15 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' \
   -d '[
     {
       "simVarName": "CAMERA STATE",
-      "unit": "",
-      "index": 0
+      "unit": ""
+    },
+ {
+   "simVarName": "PLANE ALTITUDE",
+      "unit": "feet"
     },
     {
-      "simVarName": "PLANE ALTITUDE",
-      "unit": "feet",
-      "index": 0
-    },
-    {
-      "simVarName": "AIRSPEED INDICATED",
-      "unit": "knots",
-      "index": 0
+  "simVarName": "AIRSPEED INDICATED",
+      "unit": "knots"
     }
   ]'
 ```
@@ -127,4 +123,3 @@ Basicaly for `CAMERA STATE` : `CAMERA VIEW TYPE AND INDEX:0` : `CAMERA VIEW TYPE
 - 2:2:2 - cockpit, instrument, instrument 03 (FMS view)
 - 3:0:0 - external, default
 - 3:4:1 - external, quickview, quickview 02 (front)
-- 

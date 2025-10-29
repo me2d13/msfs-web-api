@@ -15,7 +15,7 @@ Example usage with curl:
 Single variable operations:
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE"}'
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}'
-curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX","unit": "Number","index": 0}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX","unit": "Number"}'
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1","unit": "Percent"}'
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:0","unit": ""}'
 
@@ -24,7 +24,7 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H
 curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}'
 
 Multiple variable operations:
-curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE","unit": "","index": 0}, {"simVarName": "FLAPS HANDLE INDEX","unit": "Number","index": 0}]'
+curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE","unit": ""}, {"simVarName": "FLAPS HANDLE INDEX","unit": "Number"}]'
 curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE"}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:0"}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}]'
 // Switch to cockpit and set flaps to 2
 curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "FLAPS HANDLE INDEX", "unit": "Number", "value": 2}]'
@@ -236,27 +236,27 @@ namespace SimConnector
         private DEFINITION EnsureSimVarRegistered(SimVarReference reference)
         {
             var (uniqueId, isNew) = idManager.GetOrAssignId(reference);
-            var defineId = (DEFINITION)uniqueId;
-            if (isNew)
-            {
-                _logger.LogInformation($"Registering SimVar: {reference.SimVarName}, Unit: {reference.Unit}, Index: {reference.Index}");
-                _simConnect.AddToDataDefinition(
-                    defineId,
-                    reference.SimVarName,
-                    reference.Unit,
-                    SIMCONNECT_DATATYPE.FLOAT64,
-                    0.0f,
-                    SimConnect.SIMCONNECT_UNUSED
-                );
-                _simConnect.RegisterDataDefineStruct<double>(defineId);
-            }
-            return defineId;
-        }
+       var defineId = (DEFINITION)uniqueId;
+    if (isNew)
+   {
+        _logger.LogInformation($"Registering SimVar: {reference.SimVarName}, Unit: {reference.Unit}");
+            _simConnect.AddToDataDefinition(
+         defineId,
+           reference.SimVarName,
+         reference.Unit,
+       SIMCONNECT_DATATYPE.FLOAT64,
+         0.0f,
+         SimConnect.SIMCONNECT_UNUSED
+         );
+ _simConnect.RegisterDataDefineStruct<double>(defineId);
+   }
+       return defineId;
+     }
 
         private int _nextRequestId = 0;
         public async Task<SimVarReference?> GetSimVarValueAsync(SimVarReference reference)
-        {
-            _logger.LogInformation($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Index={reference?.Index}");
+     {
+            _logger.LogInformation($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}");
             if (reference == null)
             {
                 _logger.LogWarning("Reference is null.");
@@ -325,7 +325,7 @@ namespace SimConnector
 
         public async Task<SimVarReference?> SetSimVarValueAsync(SimVarReference reference)
         {
-            _logger.LogInformation($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Index={reference?.Index}, Value={reference?.Value}");
+            _logger.LogInformation($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Value={reference?.Value}");
             if (reference == null)
             {
                 _logger.LogWarning("Reference is null.");
