@@ -1,196 +1,47 @@
-using SimConnector;
-using System.Diagnostics;
-using System.Reflection;
-using System.IO;
-using System.Net;
+using System;
 
-const string ResourceName = "MsfsApiServer.Resources.plane32.ico";
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Add command line configuration source for optional port parameter
-builder.Configuration.AddCommandLine(args);
-
-// Get port from command line args or use default
-var port = builder.Configuration["port"] ?? "5018";
-// Use 0.0.0.0 to listen on all network interfaces
-var url = $"http://0.0.0.0:{port}";
-builder.WebHost.UseUrls(url);
-
-builder.Services.AddSingleton<SimConnector.SimConnectClient>();
-
-// Configure CORS to allow requests from any origin
-builder.Services.AddCors(options =>
+class Program
 {
-    options.AddDefaultPolicy(policy =>
-  {
-        policy
-         .AllowAnyOrigin()
-            .AllowAnyHeader()
-       .AllowAnyMethod();
-    });
-});
-
-// Register core services
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-var app = builder.Build();
-
-// Enable CORS
-app.UseCors();
-
-// Enable Swagger UI for API documentation
-app.UseSwagger();
-app.UseSwaggerUI();
-
-// Get local IP address for display in tray icon
-string localIp = "0.0.0.0";
-try
-{
-    var host = Dns.GetHostEntry(Dns.GetHostName());
-    // Get first IPv4 address
-    localIp = host.AddressList
-        .FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-        ?.ToString() ?? "0.0.0.0";
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"Error getting local IP: {ex.Message}");
+    public static void Main(string[] args)
+    {
+        // Start the web API host and get port and local IP
+        var (port, localIp) = WebApiHost.Start(args);
+        // Start the tray icon UI
+        TrayIconManager.Start(port, localIp);
+        // The web server runs in the background (non-blocking)
+        // The tray icon thread runs its own message loop
+        // Main thread can just wait
+        Thread.Sleep(Timeout.Infinite);
+    }
 }
 
-// Start tray icon in a background STA thread
-var trayThread = new Thread(() =>
-{
-    // Create and configure the tray icon and its context menu
-    NotifyIcon trayIcon = new NotifyIcon();
 
-    try
-    {
-        // Load embedded icon resource for tray icon
-        Assembly assembly = Assembly.GetExecutingAssembly();
-        using (Stream iconStream = assembly.GetManifestResourceStream(ResourceName))
-        {
-            if (iconStream != null)
-            {
-                trayIcon.Icon = new Icon(iconStream);
-            }
-            else
-            {
-                Console.WriteLine($"Error: Embedded resource '{ResourceName}' not found. Using default icon.");
-                trayIcon.Icon = SystemIcons.Application;
-            }
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error loading embedded icon: {ex.Message}. Using default icon.");
-        trayIcon.Icon = SystemIcons.Application;
-    }
+/*
+Example usage with curl:
 
-    // Show both localhost and network IP in tray tooltip
-    trayIcon.Text = $"MSFS Web API listening at:\nhttp://localhost:{port}\nhttp://{localIp}:{port}";
+Single variable operations:
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX","unit": "Number"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1","unit": "Percent"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:0","unit": ""}'
 
-    var contextMenu = new ContextMenuStrip();
-    var showApiDocItem = new ToolStripMenuItem("Show API doc");
-    var copyUrlItem = new ToolStripMenuItem("Copy network URL");
-    var quitItem = new ToolStripMenuItem("Quit");
-    contextMenu.Items.Add(showApiDocItem);
-    contextMenu.Items.Add(copyUrlItem);
-    contextMenu.Items.Add(new ToolStripSeparator());
-    contextMenu.Items.Add(quitItem);
-    trayIcon.ContextMenuStrip = contextMenu;
-    trayIcon.Visible = true;
+curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE", "value": 3}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX", "value": 1}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/set' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}'
 
-    // Open Swagger UI in browser when menu item is clicked
-    showApiDocItem.Click += (s, e) =>
-    {
-        var swaggerUrl = $"http://localhost:{port}/swagger";
-        Process.Start(new ProcessStartInfo(swaggerUrl) { UseShellExecute = true });
-    };
+Multiple variable operations:
+curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE","unit": ""}, {"simVarName": "FLAPS HANDLE INDEX","unit": "Number"}]'
+curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE"}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:0"}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}]'
+// Switch to cockpit and set flaps to 2
+curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "FLAPS HANDLE INDEX", "unit": "Number", "value": 2}]'
+cockipt instrument view 3:
+curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}]'
+curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '[{"simVarName": "CAMERA STATE", "value": 2}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:0", "value": 2}, {"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}]'
 
-    // Copy network URL to clipboard
-    copyUrlItem.Click += (s, e) =>
-    {
-        var networkUrl = $"http://{localIp}:{port}";
-        try
-        {
-            Clipboard.SetText(networkUrl);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    };
 
-    // Handle quit action: dispose tray icon and exit application
-    quitItem.Click += (s, e) =>
-    {
-        trayIcon.Visible = false;
-        trayIcon.Dispose();
-        // For a graceful shutdown, use app.Lifetime.StopApplication() if available
-        Environment.Exit(0);
-        Application.Exit();
-    };
-
-    // Show context menu on right-click (handled by OS, but explicit call is harmless)
-    trayIcon.MouseUp += (s, e) =>
-    {
-        if (e.Button == MouseButtons.Right)
-        {
-            contextMenu.Show(Cursor.Position);
-        }
-    };
-
-    // Start the Windows Forms message loop for the tray icon
-    Application.Run();
-});
-
-trayThread.IsBackground = true;
-trayThread.SetApartmentState(ApartmentState.STA); // Required for Windows Forms
-trayThread.Start();
-
-// Map API endpoints
-app.MapGet("/api/status", (SimConnectClient simClient) =>
-{
-    simClient.RefreshConnection();
-    string connectionStatus = simClient.IsConnected ? "CONNECTED" : "DISCONNECTED";
-    return $"API Server Running. MSFS Connection Status: {connectionStatus}";
-});
-
-app.MapPost("/api/simvar/get", async (SimConnectClient simClient, SimVarReference reference) =>
-{
-    var result = await simClient.GetSimVarValueAsync(reference);
-    return Results.Json(result);
-});
-
-app.MapPost("/api/simvar/set", async (SimConnectClient simClient, SimVarReference reference) =>
-{
-    var result = await simClient.SetSimVarValueAsync(reference);
-    return Results.Json(result);
-});
-
-app.MapPost("/api/simvar/getMultiple", async (SimConnectClient simClient, List<SimVarReference> references) =>
-{
-    var results = await simClient.GetMultipleSimVarValuesAsync(references);
-    return Results.Json(results);
-});
-
-app.MapPost("/api/simvar/setMultiple", async (SimConnectClient simClient, List<SimVarReference> references) =>
-{
-    var results = await simClient.SetMultipleSimVarValuesAsync(references);
-    return Results.Json(results);
-});
-
-app.MapPost("/api/event/send", async (SimConnectClient simClient, EventReference reference) =>
-{
-    simClient.SendEvent(reference);
-    return "OK";
-});
-
-app.UseAuthorization();
-app.MapControllers();
-
-// Start the web server
-app.Run();
+Events:
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "TAXI_LIGHTS_SET", "value": 1}'
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "AXIS_PAN_HEADING", "value": 90}'
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "EYEPOINT_RESET"}'
+*/
