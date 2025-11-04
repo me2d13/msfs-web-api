@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SimVar WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        #log { white-space: pre; background: #f0f0f0; padding: 1em; border: 1px solid #ccc; height: 300px; overflow-y: auto; }
+        input, button, textarea { margin: 0.5em 0; }
+    </style>
+</head>
+<body>
+    <h2>SimVar WebSocket Test</h2>
+    <label>Server URL: <input id="wsurl" size="50" value="ws://localhost:5018/api/simvar/register?interval=2"></label><br>
+    <label>SimVar JSON array:</label><br>
+                                     <textarea id="simvars" rows="5" cols="60">[
+  { "simVarName": "CAMERA STATE" },
+  { "simVarName": "CAMERA VIEW TYPE AND INDEX:0" },
+  { "simVarName": "CAMERA VIEW TYPE AND INDEX:1" }
+]</textarea><br>
+    <button onclick="start()">Connect & Send</button>
+    <button onclick="stop()">Disconnect</button>
+    <div id="log"></div>
+    <script>
+        let ws = null;
+        function log(msg) {
+            const logDiv = document.getElementById('log');
+            logDiv.textContent += msg + "\n";
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        function start() {
+            stop();
+            const url = document.getElementById('wsurl').value;
+            ws = new WebSocket(url);
+            ws.onopen = function() {
+                log("WebSocket connected.");
+                const simvars = document.getElementById('simvars').value;
+                ws.send(simvars);
+                log("Sent: " + simvars);
+            };
+            ws.onmessage = function(evt) {
+                log("Received: " + evt.data);
+            };
+            ws.onerror = function(evt) {
+                log("WebSocket error: " + evt.message);
+            };
+            ws.onclose = function() {
+                log("WebSocket closed.");
+            };
+        }
+        function stop() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+    </script>
+</body>
+</html>

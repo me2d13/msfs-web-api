@@ -8,6 +8,7 @@ A lightweight web API server that connects to Microsoft Flight Simulator (MSFS) 
 - Swagger UI for API exploration and testing
 - Real-time connection status monitoring
 - SimVar get/set functionality through REST endpoints
+- WebSocket streaming of SimVar updates (same request body as getMultiple)
 
 ## Running the Application
 
@@ -33,6 +34,7 @@ MsfsApiServer.exe --port 5000
 - `POST /api/simvar/getMultiple` - Get multiple SimVar values (parallel execution)
 - `POST /api/simvar/setMultiple` - Set multiple SimVar values (sequential execution)
 - `POST /api/event/send` - Send a SimConnect event (name mandatory, value optional)
+- `WS /api/simvar/register` - WebSocket streaming of SimVar updates (see details below)
 
 For detailed API documentation, access the Swagger UI at `http://localhost:{port}/swagger` when the application is running.
 
@@ -105,6 +107,39 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' \
   ]'
 ```
 
+## WebSocket Streaming: `/api/simvar/register`
+
+Stream live updates for one or more SimVars over WebSocket.
+
+- URL: `ws://{host}:{port}/api/simvar/register`
+- First client message (text): JSON array with the same schema as `POST /api/simvar/getMultiple`
+ - Example first message:
+ ```json
+ [
+ { "simVarName": "PLANE ALTITUDE", "unit": "feet" },
+ { "simVarName": "AIRSPEED INDICATED", "unit": "knots" }
+ ]
+ ```
+- Server messages: JSON array of `SimVarReference` with `value` populated for each requested SimVar.
+- Default behavior: Server sends only when at least one value changed since the last sent snapshot (with small tolerance; `NaN` equals `NaN`).
+
+### Query Parameters
+
+- `interval` (int, optional): update interval in seconds. Default: `2`.
+- `alwaysUpdate` (bool, optional):
+ - `false` (default) – send only when values change.
+ - `true` – force send every interval even if values did not change.
+
+### Example WebSocket URL
+
+```
+ws://localhost:5018/api/simvar/register?interval=1&alwaysUpdate=true
+```
+
+### Simple Test Page
+
+A basic test page is included at `tools/ws-test.html`. It connects to the WebSocket endpoint, sends a JSON array as the first message, and prints responses.
+
 ## System Requirements
 
 - .NET 8.0 or later
@@ -112,14 +147,14 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' \
 - SimConnect SDK
 
 ## Example use - MSFS views
-- cockpit view: {"simVarName": "CAMERA STATE", "value": 2}
-- external view: {"simVarName": "CAMERA STATE", "value": 3}
-- FMS view (instrument view 3): {"simVarName":"CAMERA VIEW TYPE AND INDEX:1","value":2}
+- cockpit view: {"simVarName": "CAMERA STATE", "value":2}
+- external view: {"simVarName": "CAMERA STATE", "value":3}
+- FMS view (instrument view3): {"simVarName":"CAMERA VIEW TYPE AND INDEX:1","value":2}
 
 Basicaly for `CAMERA STATE` : `CAMERA VIEW TYPE AND INDEX:0` : `CAMERA VIEW TYPE AND INDEX:1` we have:
 - 2:1:1 - cockpit, pilot, close
 - 2:1:4 - cockpit, pilot, copilot
-- 2:2:0 - cockipt, instrument, instrument 01 (close look at glareshield)
-- 2:2:2 - cockpit, instrument, instrument 03 (FMS view)
+- 2:2:0 - cockipt, instrument, instrument01 (close look at glareshield)
+- 2:2:2 - cockpit, instrument, instrument03 (FMS view)
 - 3:0:0 - external, default
-- 3:4:1 - external, quickview, quickview 02 (front)
+- 3:4:1 - external, quickview, quickview02 (front)
