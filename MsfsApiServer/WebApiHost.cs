@@ -9,13 +9,14 @@ using System.Text;
 
 public static class WebApiHost
 {
-    public static (string port, string localIp) Start(string[] args)
+    // New overload that accepts a pre-configured builder (logging configured at app level)
+    public static (string port, string localIp) Start(WebApplicationBuilder builder)
     {
-        var builder = WebApplication.CreateBuilder(args);
-        builder.Configuration.AddCommandLine(args);
+        // Ensure command line args are already added by caller if needed
         var port = builder.Configuration["port"] ?? "5018";
         var url = $"http://0.0.0.0:{port}";
         builder.WebHost.UseUrls(url);
+
         builder.Services.AddSingleton<SimConnectClient>();
         builder.Services.AddSingleton<SimVarService>();
         builder.Services.AddSingleton<SimEventService>();
@@ -29,11 +30,13 @@ public static class WebApiHost
         builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
+
         var app = builder.Build();
         app.UseCors();
         app.UseWebSockets();
         app.UseSwagger();
         app.UseSwaggerUI();
+
         string localIp = "0.0.0.0";
         try
         {
@@ -41,6 +44,7 @@ public static class WebApiHost
             localIp = host.AddressList.FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.ToString() ?? "0.0.0.0";
         }
         catch { }
+
         app.MapGet("/api/status", (SimConnectClient simClient) =>
         {
             simClient.RefreshConnection();
@@ -72,6 +76,7 @@ public static class WebApiHost
             simEventService.SendEvent(reference);
             return Results.Ok("OK");
         });
+
         // WebSocket endpoint for simvar updates
         app.Map("/api/simvar/register", async (HttpContext context) =>
         {
@@ -220,11 +225,20 @@ public static class WebApiHost
 
             wsLogger.LogInformation("WS /api/simvar/register closed for {RemoteIp}", context.Connection.RemoteIpAddress);
         });
+
         app.UseAuthorization();
         app.MapControllers();
         // Start the web server (non-blocking)
         var runTask = Task.Run(() => app.Run());
         return (port, localIp);
+    }
+
+    // Backward-compatible overload
+    public static (string port, string localIp) Start(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+        builder.Configuration.AddCommandLine(args);
+        return Start(builder);
     }
 
     private static async Task<bool> DetectDisconnect(WebSocket webSocket, CancellationToken cancellationToken)

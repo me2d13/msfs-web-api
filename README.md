@@ -26,6 +26,20 @@ You can optionally specify a different port using the command line parameter:
 MsfsApiServer.exe --port 5000
 ```
 
+### Logging
+
+The app writes logs to a file so you can inspect the last run even when started without a console.
+
+- Default file: next to the executable, with the same name and a `.log` extension (e.g., `MsfsApiServer.log`).
+- The file is recreated (truncated) on each start and kept after the program exits.
+- You can override the file (including full path) with `--logFile`:
+
+```bash
+MsfsApiServer.exe --logFile "C:\\Temp\\msfsapi.log"
+```
+
+- If the file cannot be written (permissions, path), file logging is silently disabled.
+
 ## API Endpoints
 
 - `GET /api/status` - Check API server and MSFS connection status
@@ -139,6 +153,26 @@ ws://localhost:5018/api/simvar/register?interval=1&alwaysUpdate=true
 ### Simple Test Page
 
 A basic test page is included at `tools/ws-test.html`. It connects to the WebSocket endpoint, sends a JSON array as the first message, and prints responses.
+
+### CLI Test with wscat
+
+Use the `wscat` CLI to test from a terminal.
+
+- Install (Node.js required):
+
+```bash
+npm install -g wscat
+```
+
+- Connect, then paste a one-line JSON array as the first message:
+
+```bash
+wscat -c "ws://localhost:5018/api/simvar/register?interval=1&alwaysUpdate=false"
+# After connected, paste:
+# [{"simVarName":"PLANE ALTITUDE","unit":"feet"},{"simVarName":"AIRSPEED INDICATED","unit":"knots"}]
+```
+
+You should start seeing JSON snapshots streamed back at the chosen interval, subject to the `alwaysUpdate` setting.
 
 ## System Requirements
 
