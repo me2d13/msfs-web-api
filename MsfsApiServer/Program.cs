@@ -2,19 +2,26 @@ using System;
 using System.IO;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using MsfsApiServer.Logging;
+using MsfsApiServer.Configuration;
+using MsfsApiServer.Udp;
+using SimConnector;
 
 class Program
 {
     public static void Main(string[] args)
     {
-        // Create and configure the app builder first so logging is app-wide
+        // Load configuration with precedence: defaults < config file < command-line args
+        var configResult = ConfigLoader.Load(args);
+        var config = configResult.Config;
+
+        // Create and configure the app builder
         var builder = WebApplication.CreateBuilder(args);
         builder.Configuration.AddCommandLine(args);
 
-        // Resolve log file path: --logFile can override, else next to EXE with .log
-        string? logFileArg = builder.Configuration["logFile"]; // usage: --logFile "C:\\path\\app.log"
-        string logFilePath = ResolveLogFilePath(logFileArg);
+        // Configure logging from config
+        string logFilePath = ResolveLogFilePath(config.General.LogFile);
         if (!string.IsNullOrWhiteSpace(logFilePath))
         {
             try
@@ -35,11 +42,36 @@ class Program
             }
         }
 
-        // Start the web API host and get port and local IP
-        var (port, localIp) = WebApiHost.Start(builder);
+        // Inject resolved port from config into builder configuration for WebApiHost
+        var port = config.WebApi.Port?.ToString() ?? "5018";
+        builder.Configuration["port"] = port;
+
+        // Start the web API host and get port, local IP, and the built app
+        var (actualPort, localIp, app) = WebApiHost.StartAndReturnApp(builder);
+
+        // Now that logging is initialized, log the configuration diagnostics
+        var logger = app.Services.GetRequiredService<ILogger<Program>>();
+        logger.LogInformation("Configuration: {ConfigSummary}", configResult.Diagnostics.GetSummary());
+
+        // Start UDP streaming if enabled in config
+        UdpStreamingService? udpService = null;
+        if (config.Udp.Enabled)
+        {
+            try
+            {
+                var simVarService = app.Services.GetRequiredService<SimVarService>();
+                var udpLogger = app.Services.GetRequiredService<ILogger<UdpStreamingService>>();
+                udpService = new UdpStreamingService(simVarService, config.Udp, udpLogger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to start UDP streaming");
+                // Continue without UDP streaming if it fails
+            }
+        }
 
         // Start the tray icon UI
-        TrayIconManager.Start(port, localIp);
+        TrayIconManager.Start(actualPort, localIp);
 
         // Keep main thread alive
         Thread.Sleep(Timeout.Infinite);
@@ -90,6 +122,5 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/p
 
 Events:
 curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "TAXI_LIGHTS_SET", "value": 1}'
-curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "AXIS_PAN_HEADING", "value": 90}'
-curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "EYEPOINT_RESET"}'
+curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "PARKING_BRAKES"}'
 */

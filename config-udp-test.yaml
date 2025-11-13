@@ -1,0 +1,23 @@
+# Example configuration with UDP enabled
+general:
+  logFile: "MsfsApiServerWithConfig.log"
+
+webApi:
+  port: 5018
+
+udp:
+  # Enable UDP streaming
+  enabled: true
+  
+  # Target configuration - send to localhost for testing
+  # You can use tools like netcat to receive: nc -ul 49002
+  targetHost: "127.0.0.1"
+  targetPort: 49002
+  
+  # Update every 500ms (twice per second)
+  interval: 500
+  
+  # Variables to stream
+  variables:
+    - "GENERAL ENG THROTTLE LEVER POSITION:1"
+    - "GENERAL ENG THROTTLE LEVER POSITION:2"

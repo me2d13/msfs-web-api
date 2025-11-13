@@ -29,9 +29,11 @@ public static class TrayIconManager
             var contextMenu = new ContextMenuStrip();
             var showApiDocItem = new ToolStripMenuItem("Show API doc");
             var copyUrlItem = new ToolStripMenuItem("Copy network URL");
+            var openGithubItem = new ToolStripMenuItem("Open Github page");
             var quitItem = new ToolStripMenuItem("Quit");
             contextMenu.Items.Add(showApiDocItem);
             contextMenu.Items.Add(copyUrlItem);
+            contextMenu.Items.Add(openGithubItem);
             contextMenu.Items.Add(new ToolStripSeparator());
             contextMenu.Items.Add(quitItem);
             trayIcon.ContextMenuStrip = contextMenu;
@@ -47,6 +49,18 @@ public static class TrayIconManager
             try { Clipboard.SetText(networkUrl); }
             catch (Exception ex) { MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
+            openGithubItem.Click += (s, e) =>
+     {
+            var githubUrl = "https://github.com/me2d13/msfs-web-api";
+            try
+            {
+                Process.Start(new ProcessStartInfo(githubUrl) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error opening Github page: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+ };
             quitItem.Click += (s, e) =>
      {
             trayIcon.Visible = false;

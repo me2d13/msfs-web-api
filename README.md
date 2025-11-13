@@ -8,7 +8,10 @@ A lightweight web API server that connects to Microsoft Flight Simulator (MSFS) 
 - Swagger UI for API exploration and testing
 - Real-time connection status monitoring
 - SimVar get/set functionality through REST endpoints
+- REST endpoint for SimConnect event sending (simulator commands)
 - WebSocket streaming of SimVar updates (same request body as getMultiple)
+- YAML configuration file support with command-line override
+- Variable UDP output - simulation variables can be streamed via UDP (e.g. for home cockipt hw)
 
 ## Running the Application
 
@@ -18,13 +21,66 @@ The application runs by default on port 5018. You can start it by running:
 MsfsApiServer.exe
 ```
 
-### Custom Port
+### Configuration
 
-You can optionally specify a different port using the command line parameter:
+The application can be configured via a YAML configuration file and/or command-line arguments. Command-line arguments take precedence over configuration file values.
+
+#### Configuration File
+
+By default, the app looks for `config.yaml` in the same directory as the executable. You can specify a different configuration file using:
 
 ```bash
-MsfsApiServer.exe --port 5000
+MsfsApiServer.exe --config msfs2024.yaml
 ```
+
+**Configuration file structure (`config.yaml`):**
+
+```yaml
+general:
+  logFile: "C:\\Logs\\msfsapi.log"  # Optional: path to log file
+
+webApi:
+  port: 5018  # Optional: port for the web server
+
+udp:
+  enabled: false  # Enable/disable UDP streaming (default: false)
+  targetHost: "192.168.1.100"  # Target host for UDP output
+  targetPort: 49002      # Target port for UDP output
+  interval: 100   # Update interval in milliseconds
+  variables:    # List of SimVars to stream via UDP
+    - "PLANE ALTITUDE"
+    - "AIRSPEED INDICATED"
+    - "HEADING INDICATOR"
+```
+
+**Configuration sections:**
+
+- **`general`**: Application-wide settings
+  - `logFile`: Log file path (same as `--logFile` command-line argument)
+
+- **`webApi`**: Web API server settings
+  - `port`: Port number for the web server (same as `--port` command-line argument)
+
+- **`udp`**: UDP streaming configuration
+  - `enabled`: Enable/disable UDP streaming (default: `false`). UDP streaming is disabled by default and must be explicitly enabled in the configuration file.
+  - `targetHost`: Target host for UDP output
+  - `targetPort`: Target port for UDP output
+  - `interval`: Update interval in milliseconds (default: 100)
+  - `variables`: List of SimVar names to stream via UDP
+
+#### Command-Line Arguments
+
+Command-line arguments override configuration file values:
+
+```bash
+MsfsApiServer.exe --port 5000 --logFile "C:\\Temp\\msfsapi.log" --config myconfig.yaml
+```
+
+Available arguments:
+
+- `--port <number>`: Web server port (default:5018, overrides `webApi.port` in config)
+- `--logFile <path>`: Log file path (overrides `general.logFile` in config)
+- `--config <filename>`: Configuration file name or path (default: `config.yaml`)
 
 ### Logging
 
@@ -32,7 +88,7 @@ The app writes logs to a file so you can inspect the last run even when started 
 
 - Default file: next to the executable, with the same name and a `.log` extension (e.g., `MsfsApiServer.log`).
 - The file is recreated (truncated) on each start and kept after the program exits.
-- You can override the file (including full path) with `--logFile`:
+- You can override the file via configuration file (`general.logFile`) or command line (`--logFile`):
 
 ```bash
 MsfsApiServer.exe --logFile "C:\\Temp\\msfsapi.log"

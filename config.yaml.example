@@ -1,0 +1,37 @@
+# Example configuration file for MSFS Web API Server
+# Place this file next to MsfsApiServer.exe or specify with --config parameter
+
+general:
+  # Log file path (optional)
+  # If not specified, defaults to MsfsApiServer.log next to the executable
+  logFile: "MsfsApiServer.log"
+
+webApi:
+  # Port for the web server (optional)
+  # Default: 5018
+  port: 5018
+
+udp:
+  # Enable UDP streaming (optional)
+  # Default: false (UDP streaming disabled)
+  # Set to true to enable UDP output
+  enabled: false
+  
+  # UDP streaming configuration (only used when enabled: true)
+  # Target host for UDP output
+  targetHost: "192.168.1.100"
+  
+  # Target port for UDP output
+  targetPort: 49002
+  
+  # Update interval in milliseconds
+  # Default: 100ms
+  interval: 100
+  
+  # List of SimVar names to stream via UDP
+  # Each variable will be queried and sent at the specified interval
+  variables:
+    - "PLANE ALTITUDE"
+    - "AIRSPEED INDICATED"
+    - "HEADING INDICATOR"
+    - "VERTICAL SPEED"

@@ -9,8 +9,8 @@ using System.Text;
 
 public static class WebApiHost
 {
-    // New overload that accepts a pre-configured builder (logging configured at app level)
-    public static (string port, string localIp) Start(WebApplicationBuilder builder)
+    // New overload that accepts a pre-configured builder and returns the app (for service access)
+    public static (string port, string localIp, WebApplication app) StartAndReturnApp(WebApplicationBuilder builder)
     {
         // Ensure command line args are already added by caller if needed
         var port = builder.Configuration["port"] ?? "5018";
@@ -230,6 +230,13 @@ public static class WebApiHost
         app.MapControllers();
         // Start the web server (non-blocking)
         var runTask = Task.Run(() => app.Run());
+        return (port, localIp, app);
+    }
+
+    // Original overload now calls the new one and discards app
+    public static (string port, string localIp) Start(WebApplicationBuilder builder)
+    {
+        var (port, localIp, _) = StartAndReturnApp(builder);
         return (port, localIp);
     }
 
