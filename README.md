@@ -4,14 +4,21 @@ A lightweight web API server that connects to Microsoft Flight Simulator (MSFS) 
 
 ## Features
 
-- System tray application with easy access to API documentation
-- Swagger UI for API exploration and testing
-- Real-time connection status monitoring
 - SimVar get/set functionality through REST endpoints with optional output aliases
 - REST endpoint for SimConnect event sending (simulator commands)
 - WebSocket streaming of SimVar updates (same request body as getMultiple)
-- YAML configuration file support with command-line override
 - Variable UDP output - simulation variables can be streamed via UDP (e.g. for home cockpit hw)
+- System tray application with easy access to API documentation
+- Swagger UI for API exploration and testing
+- YAML configuration file support with command-line override
+
+## Disclaimer
+
+I'm Java developer and have no experience with C# or .NET development. 
+The application is 80% AI-generated, just keeping maintainable structure.
+It has 2 main purposes for me:
+1. make SimConnect accessible from javascript so I can build web-based cockpit panels (see [fs-web-panels](https://github.com/me2d13/fs-web-panels) repo)
+1. send UDP data to my [motorized thtrottle quadrant](https://github.com/me2d13/mtu-pio) so it moves even for MSFS (not only X-Plane))
 
 ## Running the Application
 
@@ -83,7 +90,7 @@ Available arguments:
 
 - `--port <number>`: Web server port (default: 5018, overrides `webApi.port` in config)
 - `--logFile <path>`: Log file path (overrides `general.logFile` in config)
-- `--logLevel <level>`: Log level - Trace, Debug, Information (default), Warning, Error, Critical, or None (overrides `general.logLevel` in config)
+- `--logLevel <level>`: Log level - Trace, Debug, Information (default), Warning, Error, Critical, or None
 - `--config <filename>`: Configuration file name or path (default: `config.yaml`)
 
 **Examples:**
@@ -217,9 +224,9 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' \
       "simVarName": "PLANE ALTITUDE",
       "unit": "feet"
     },
-  {
+    {
       "simVarName": "AIRSPEED INDICATED",
-   "unit": "knots"
+      "unit": "knots"
     }
   ]'
 ```
@@ -228,7 +235,7 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' \
 ```json
 {
   "CAMERA STATE": 2,
-"PLANE ALTITUDE": 5234.2,
+  "PLANE ALTITUDE": 5234.2,
   "AIRSPEED INDICATED": 142.5
 }
 ```
@@ -243,13 +250,13 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' \
       "simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1|THR1",
       "unit": ""
     },
-  {
+    {
       "simVarName": "BRAKE PARKING INDICATOR|PRK_BRAKE",
       "unit": ""
     },
     {
       "simVarName": "PLANE ALTITUDE",
-"unit": "feet"
+      "unit": "feet"
     }
   ]'
 ```
