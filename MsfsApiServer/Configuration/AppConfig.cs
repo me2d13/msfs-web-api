@@ -21,6 +21,9 @@ namespace MsfsApiServer.Configuration
     {
         [YamlMember(Alias = "logFile")]
         public string? LogFile { get; set; }
+
+        [YamlMember(Alias = "logLevel")]
+        public string? LogLevel { get; set; }
     }
 
     public class WebApiConfig

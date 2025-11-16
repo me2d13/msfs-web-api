@@ -113,6 +113,10 @@ namespace MsfsApiServer.Configuration
                 {
                     result.LogFile = args[++i];
                 }
+                else if (args[i] == "--logLevel" && i + 1 < args.Length)
+                {
+                    result.LogLevel = args[++i];
+                }
             }
 
             return result;
@@ -132,6 +136,12 @@ namespace MsfsApiServer.Configuration
                 config.General.LogFile = cmdLine.LogFile;
                 diagnostics.CommandLineOverrides.Add($"--logFile {cmdLine.LogFile}");
             }
+  
+            if (!string.IsNullOrWhiteSpace(cmdLine.LogLevel))
+            {
+                config.General.LogLevel = cmdLine.LogLevel;
+                diagnostics.CommandLineOverrides.Add($"--logLevel {cmdLine.LogLevel}");
+            }
         }
 
         private class CommandLineConfig
@@ -139,6 +149,7 @@ namespace MsfsApiServer.Configuration
             public string? ConfigFile { get; set; }
             public int? Port { get; set; }
             public string? LogFile { get; set; }
+            public string? LogLevel { get; set; }
         }
     }
 }

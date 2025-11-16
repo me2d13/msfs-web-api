@@ -1,6 +1,10 @@
-# Example configuration with UDP enabled
+# Example configuration with UDP enabled and output aliases
 general:
   logFile: "MsfsApiServerWithConfig.log"
+  # Log level: Trace, Debug, Information, Warning, Error, Critical, None
+  # Default: Information
+# Set to Debug to see detailed SimVar operation logs
+  logLevel: "Information"
 
 webApi:
   port: 5018
@@ -9,15 +13,18 @@ udp:
   # Enable UDP streaming
   enabled: true
   
-  # Target configuration - send to localhost for testing
-  # You can use tools like netcat to receive: nc -ul 49002
-  targetHost: "127.0.0.1"
+  # Target configuration - supports both IP addresses and hostnames
+  # Examples: "127.0.0.1", "localhost", "192.168.1.100", "my-cockpit.local"
+  targetHost: "localhost"
   targetPort: 49002
   
   # Update every 500ms (twice per second)
   interval: 500
   
-  # Variables to stream
+  # Variables to stream with output aliases
+  # Format: "ACTUAL_VAR_NAME|OUTPUT_ALIAS" or just "ACTUAL_VAR_NAME"
   variables:
-    - "GENERAL ENG THROTTLE LEVER POSITION:1"
-    - "GENERAL ENG THROTTLE LEVER POSITION:2"
+    - "GENERAL ENG THROTTLE LEVER POSITION:1|THR1"
+    - "GENERAL ENG THROTTLE LEVER POSITION:2|THR2"
+    - "BRAKE PARKING INDICATOR|PRK_BRAKE"
+    - "PLANE ALTITUDE"  # No alias, will use full name in output

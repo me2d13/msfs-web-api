@@ -51,15 +51,16 @@ namespace MsfsApiServer.Udp
                 throw new ArgumentException("UDP config must have at least one variable");
             }
 
-            // Parse target endpoint
-            _targetEndpoint = new IPEndPoint(IPAddress.Parse(config.TargetHost), config.TargetPort.Value);
+            // Resolve target endpoint (supports both IP addresses and hostnames)
+            _targetEndpoint = ResolveEndpoint(config.TargetHost, config.TargetPort.Value);
 
             // Initialize UDP client
             InitializeUdpClient();
 
-            // Build SimVarReference list from config (use empty unit as default)
+            // Build SimVarReference list from config, parsing aliases
+            // Variables can be in format "VAR_NAME" or "VAR_NAME|OUTPUT_ALIAS"
             _simVars = config.Variables
-                .Select(varName => new SimVarReference { SimVarName = varName, Unit = "" })
+                .Select(varString => SimVarParser.CreateReference(varString, unit: ""))
                 .ToList();
 
             // Start timer with configured interval (default 1000ms)
@@ -78,6 +79,45 @@ namespace MsfsApiServer.Udp
              config.TargetPort,
             intervalMs
          );
+        }
+
+        /// <summary>
+        /// Resolve hostname or IP address to IPEndPoint.
+        /// Supports both IP addresses (e.g., "192.168.1.100") and hostnames (e.g., "localhost").
+        /// </summary>
+        private IPEndPoint ResolveEndpoint(string host, int port)
+        {
+            try
+            {
+                // Try to parse as IP address first
+                if (IPAddress.TryParse(host, out var ipAddress))
+                {
+                    return new IPEndPoint(ipAddress, port);
+                }
+
+                // If not an IP, resolve as hostname via DNS
+                var addresses = Dns.GetHostAddresses(host);
+                if (addresses.Length == 0)
+                {
+                    throw new ArgumentException($"Could not resolve hostname '{host}' to an IP address");
+                }
+
+                // Prefer IPv4 addresses
+                var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                if (ipv4 != null)
+                {
+                    _logger.LogInformation("Resolved hostname '{Host}' to IPv4 address {IP}", host, ipv4);
+                    return new IPEndPoint(ipv4, port);
+                }
+
+                // Fallback to first available address (might be IPv6)
+                _logger.LogInformation("Resolved hostname '{Host}' to address {IP}", host, addresses[0]);
+                return new IPEndPoint(addresses[0], port);
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException($"Failed to resolve target host '{host}': {ex.Message}", ex);
+            }
         }
 
         private void InitializeUdpClient()
@@ -128,11 +168,11 @@ namespace MsfsApiServer.Udp
                 // Get current values from SimConnect
                 var results = await _simVarService.GetMultipleSimVarValuesAsync(_simVars);
 
-                // Build JSON map: {varName: value}
+                // Build JSON map using output names (alias if present, otherwise var name)
                 var data = results.ToDictionary(
-     r => r.SimVarName,
-        r => r.Value
-         );
+                    r => r.GetOutputName(),
+                    r => r.Value
+                );
 
                 var json = JsonSerializer.Serialize(data);
                 var bytes = Encoding.UTF8.GetBytes(json);

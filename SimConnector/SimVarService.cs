@@ -40,7 +40,7 @@ namespace SimConnector
             {
                 if (!request.IsCompleted)
                 {
-                    _logger.LogInformation($"SimVar value received for {reference?.SimVarName}: {value}");
+                    _logger.LogDebug($"SimVar value received for {reference?.SimVarName}: {value}");
                     request.TaskCompletion.TrySetResult(value);
                 }
             }
@@ -48,7 +48,7 @@ namespace SimConnector
 
         public async Task<SimVarReference?> GetSimVarValueAsync(SimVarReference reference)
         {
-            _logger.LogInformation($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}");
+            _logger.LogDebug($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}");
             if (!_connection.IsConnected)
             {
                 _logger.LogWarning("SimConnect not connected.");
@@ -80,7 +80,7 @@ namespace SimConnector
 
         public async Task<SimVarReference?> SetSimVarValueAsync(SimVarReference reference)
         {
-            _logger.LogInformation($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Value={reference?.Value}");
+            _logger.LogDebug($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Value={reference?.Value}");
             if (!_connection.IsConnected)
             {
                 _logger.LogWarning("SimConnect not connected.");

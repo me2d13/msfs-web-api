@@ -51,26 +51,53 @@ public static class WebApiHost
             string connectionStatus = simClient.IsConnected ? "CONNECTED" : "DISCONNECTED";
             return $"API Server Running. MSFS Connection Status: {connectionStatus}";
         });
+        
         app.MapPost("/api/simvar/get", async (SimVarService simVarService, SimVarReference reference) =>
         {
-            var result = await simVarService.GetSimVarValueAsync(reference);
-            return Results.Json(result);
+            // Normalize reference to parse alias if embedded in SimVarName
+            var normalized = SimVarParser.NormalizeReference(reference);
+            var result = await simVarService.GetSimVarValueAsync(normalized);
+            if (result == null) return Results.Json(null);
+            
+            // Return as {outputName: value}
+            var response = new Dictionary<string, double> { { result.GetOutputName(), result.Value } };
+            return Results.Json(response);
         });
+        
         app.MapPost("/api/simvar/set", async (SimVarService simVarService, SimVarReference reference) =>
         {
-            var result = await simVarService.SetSimVarValueAsync(reference);
-            return Results.Json(result);
+            // Normalize reference to parse alias if embedded in SimVarName
+            var normalized = SimVarParser.NormalizeReference(reference);
+            var result = await simVarService.SetSimVarValueAsync(normalized);
+            if (result == null) return Results.Json(null);
+            
+            // Return as {outputName: value}
+            var response = new Dictionary<string, double> { { result.GetOutputName(), result.Value } };
+            return Results.Json(response);
         });
+        
         app.MapPost("/api/simvar/getMultiple", async (SimVarService simVarService, List<SimVarReference> references) =>
         {
-            var results = await simVarService.GetMultipleSimVarValuesAsync(references);
-            return Results.Json(results);
+            // Normalize all references
+            var normalized = references.Select(SimVarParser.NormalizeReference).ToList();
+            var results = await simVarService.GetMultipleSimVarValuesAsync(normalized);
+            
+            // Return as {outputName: value, ...}
+            var response = results.ToDictionary(r => r.GetOutputName(), r => r.Value);
+            return Results.Json(response);
         });
+        
         app.MapPost("/api/simvar/setMultiple", async (SimVarService simVarService, List<SimVarReference> references) =>
         {
-            var results = await simVarService.SetMultipleSimVarValuesAsync(references);
-            return Results.Json(results);
+            // Normalize all references
+            var normalized = references.Select(SimVarParser.NormalizeReference).ToList();
+            var results = await simVarService.SetMultipleSimVarValuesAsync(normalized);
+            
+            // Return as {outputName: value, ...}
+            var response = results.ToDictionary(r => r.GetOutputName(), r => r.Value);
+            return Results.Json(response);
         });
+        
         app.MapPost("/api/event/send", (SimEventService simEventService, EventReference reference) =>
         {
             simEventService.SendEvent(reference);
@@ -133,13 +160,15 @@ public static class WebApiHost
             List<SimVarReference> simVars;
             try
             {
-                simVars = JsonSerializer.Deserialize<List<SimVarReference>>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (simVars == null || simVars.Count ==0)
+                var rawRefs = JsonSerializer.Deserialize<List<SimVarReference>>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (rawRefs == null || rawRefs.Count ==0)
                 {
                     await webSocket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData, "No sim variables provided.", context.RequestAborted);
                     wsLogger.LogInformation("WS closed (no variables) from {RemoteIp}", context.Connection.RemoteIpAddress);
                     return;
                 }
+                // Normalize references to parse aliases
+                simVars = rawRefs.Select(SimVarParser.NormalizeReference).ToList();
                 wsLogger.LogInformation("WS registered {Count} vars from {RemoteIp}", simVars.Count, context.Connection.RemoteIpAddress);
             }
             catch
@@ -161,7 +190,8 @@ public static class WebApiHost
                 if (double.IsNaN(a) || double.IsNaN(b)) return false;
                 return System.Math.Abs(a - b) <=1e-6;
             }
-            static string KeyOf(SimVarReference v) => $"{v.SimVarName}|{v.Unit}";
+            // Use output name as key
+            static string KeyOf(SimVarReference v) => v.GetOutputName();
 
             while (true)
             {
@@ -196,8 +226,9 @@ public static class WebApiHost
 
                 if (alwaysUpdate || anyChanged || lastValues.Count ==0)
                 {
-                    // Send full snapshot when anything changed (or in alwaysUpdate mode).
-                    var json = JsonSerializer.Serialize(resultsList);
+                    // Send as {outputName: value, ...}
+                    var response = resultsList.ToDictionary(r => r.GetOutputName(), r => r.Value);
+                    var json = JsonSerializer.Serialize(response);
                     var sendBuffer = Encoding.UTF8.GetBytes(json);
                     try
                     {

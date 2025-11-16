@@ -22,6 +22,8 @@ class Program
 
         // Configure logging from config
         string logFilePath = ResolveLogFilePath(config.General.LogFile);
+        var logLevel = ParseLogLevel(config.General.LogLevel);
+        
         if (!string.IsNullOrWhiteSpace(logFilePath))
         {
             try
@@ -33,7 +35,7 @@ class Program
 
                 // Route all ILogger<T> to file (and Debug for dev); ignore failures silently
                 builder.Logging.ClearProviders();
-                builder.Logging.AddProvider(new SimpleFileLoggerProvider(logFilePath));
+                builder.Logging.AddProvider(new SimpleFileLoggerProvider(logFilePath, logLevel));
                 builder.Logging.AddDebug();
             }
             catch
@@ -52,6 +54,7 @@ class Program
         // Now that logging is initialized, log the configuration diagnostics
         var logger = app.Services.GetRequiredService<ILogger<Program>>();
         logger.LogInformation("Configuration: {ConfigSummary}", configResult.Diagnostics.GetSummary());
+        logger.LogInformation("Log level: {LogLevel}", logLevel);
 
         // Start UDP streaming if enabled in config
         UdpStreamingService? udpService = null;
@@ -93,6 +96,22 @@ class Program
         catch { }
         return string.Empty;
     }
+
+    private static LogLevel ParseLogLevel(string? logLevelStr)
+    {
+        if (string.IsNullOrWhiteSpace(logLevelStr))
+            return LogLevel.Information; // Default
+
+        // Parse log level string (case-insensitive)
+        if (Enum.TryParse<LogLevel>(logLevelStr, ignoreCase: true, out var level))
+        {
+            return level;
+        }
+
+        // Invalid log level, default to Information and warn (but we can't log yet!)
+        Console.WriteLine($"Warning: Invalid log level '{logLevelStr}', defaulting to Information. Valid values: Trace, Debug, Information, Warning, Error, Critical, None");
+        return LogLevel.Information;
+    }
 }
 
 
@@ -100,7 +119,7 @@ class Program
 Example usage with curl:
 
 Single variable operations:
-curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA STATE"}'
+curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "L:VC_AT_ARM_LIGHT_VAL"}'
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "CAMERA VIEW TYPE AND INDEX:1"}'
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "FLAPS HANDLE INDEX","unit": "Number"}'
 curl -X 'POST' 'http://localhost:5018/api/simvar/get' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1","unit": "Percent"}'
@@ -123,4 +142,7 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' -H 'accept: text/p
 Events:
 curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "TAXI_LIGHTS_SET", "value": 1}'
 curl -X 'POST' 'http://localhost:5018/api/event/send' -H 'accept: text/plain' -H 'Content-Type: application/json' -d '{"name": "PARKING_BRAKES"}'
+
+cd /z/home/p/msfsapi/src/MsfsApiServer/bin/x64/Release/net8.0-windows7.0/
+./MsfsApiServer.exe --config ../../../../../config-udp-test.yaml
 */
