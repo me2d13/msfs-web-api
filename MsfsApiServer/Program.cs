@@ -24,6 +24,9 @@ class Program
         string logFilePath = ResolveLogFilePath(config.General.LogFile);
         var logLevel = ParseLogLevel(config.General.LogLevel);
 
+        // Override the configuration-based log level (overrides appsettings.json)
+        builder.Configuration["Logging:LogLevel:Default"] = logLevel.ToString();
+
         // Apply global minimum log level so factory does not filter out Debug/Trace when requested
         builder.Logging.SetMinimumLevel(logLevel);
         builder.Services.Configure<LoggerFilterOptions>(o => o.MinLevel = logLevel);
