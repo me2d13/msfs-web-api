@@ -15,6 +15,10 @@ namespace SimConnector
         private int _nextRequestId = 0;
         private readonly ConcurrentDictionary<uint, PendingRequest> _pendingRequests = new();
 
+        // Track connection state to avoid log spam
+        private bool _lastKnownConnectionState = true;
+        private readonly object _connectionStateLock = new();
+
         private class PendingRequest
         {
             public TaskCompletionSource<double?> TaskCompletion { get; set; } = new();
@@ -27,6 +31,31 @@ namespace SimConnector
             _connection = connection;
             _logger = logger;
             _connection.OnRecvSimVar += OnRecvSimVar;
+
+            // Subscribe to connection state changes
+            _connection.OnConnected += () =>
+            {
+                lock (_connectionStateLock)
+                {
+                    if (!_lastKnownConnectionState)
+                    {
+                        _logger.LogInformation("SimConnect connection established");
+                        _lastKnownConnectionState = true;
+                    }
+                }
+            };
+
+            _connection.OnDisconnected += () =>
+            {
+                lock (_connectionStateLock)
+                {
+                    if (_lastKnownConnectionState)
+                    {
+                        _logger.LogWarning("SimConnect disconnected. Will attempt reconnection in the background.");
+                        _lastKnownConnectionState = false;
+                    }
+                }
+            };
         }
 
         private void OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
@@ -51,7 +80,7 @@ namespace SimConnector
             _logger.LogDebug($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}");
             if (!_connection.IsConnected)
             {
-                _logger.LogWarning("SimConnect not connected.");
+                _logger.LogDebug("SimConnect not connected, returning null");
                 return null;
             }
             var (uniqueId, isNew) = _idManager.GetOrAssignId(reference);
@@ -83,7 +112,7 @@ namespace SimConnector
             _logger.LogDebug($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Value={reference?.Value}");
             if (!_connection.IsConnected)
             {
-                _logger.LogWarning("SimConnect not connected.");
+                _logger.LogDebug("SimConnect not connected, returning null");
                 return null;
             }
             var (uniqueId, isNew) = _idManager.GetOrAssignId(reference);

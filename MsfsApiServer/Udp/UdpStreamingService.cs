@@ -168,8 +168,25 @@ namespace MsfsApiServer.Udp
                 // Get current values from SimConnect
                 var results = await _simVarService.GetMultipleSimVarValuesAsync(_simVars);
 
+                // Skip sending if no valid results (SimConnect not connected)
+                if (results == null || results.Count == 0)
+                {
+                    _logger.LogDebug("No SimVar results available, skipping UDP send");
+                    return;
+                }
+
+                // Filter out NaN values (timeouts or errors)
+                // Only include variables with valid numeric values
+                var validResults = results.Where(r => !double.IsNaN(r.Value) && !double.IsInfinity(r.Value)).ToList();
+
+                if (validResults.Count == 0)
+                {
+                    _logger.LogDebug("All SimVar values are invalid (NaN/Infinity), skipping UDP send");
+                    return;
+                }
+
                 // Build JSON map using output names (alias if present, otherwise var name)
-                var data = results.ToDictionary(
+                var data = validResults.ToDictionary(
                     r => r.GetOutputName(),
                     r => r.Value
                 );

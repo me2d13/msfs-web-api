@@ -226,19 +226,50 @@ public static class WebApiHost
 
                 if (alwaysUpdate || anyChanged || lastValues.Count ==0)
                 {
-                    // Send as {outputName: value, ...}
-                    var response = resultsList.ToDictionary(r => r.GetOutputName(), r => r.Value);
-                    var json = JsonSerializer.Serialize(response);
-                    var sendBuffer = Encoding.UTF8.GetBytes(json);
-                    try
+                    // Identify invalid numeric values prior to serialization
+                    var invalidKeys = resultsList
+                        .Where(r => double.IsNaN(r.Value) || double.IsInfinity(r.Value))
+                        .Select(r => r.GetOutputName())
+                        .ToList();
+
+                    if (invalidKeys.Count == resultsList.Count)
                     {
-                        await webSocket.SendAsync(sendBuffer, WebSocketMessageType.Text, true, context.RequestAborted);
-                        if (webSocket.State != WebSocketState.Open || context.RequestAborted.IsCancellationRequested)
-                            break;
+                        // All invalid -> skip send
+                        wsLogger.LogDebug("All SimVar values invalid (NaN/Infinity); skipping WS send");
                     }
-                    catch
+                    else
                     {
-                        break;
+                        if (invalidKeys.Count >0)
+                        {
+                            wsLogger.LogWarning("Excluding {Count} invalid SimVar values from WS send: {Keys}", invalidKeys.Count, string.Join(",", invalidKeys));
+                        }
+
+                        // Build response only from valid values
+                        var response = resultsList
+                            .Where(r => !(double.IsNaN(r.Value) || double.IsInfinity(r.Value)))
+                            .ToDictionary(r => r.GetOutputName(), r => r.Value);
+
+                        try
+                        {
+                            var json = JsonSerializer.Serialize(response);
+                            var sendBuffer = Encoding.UTF8.GetBytes(json);
+                            try
+                            {
+                                await webSocket.SendAsync(sendBuffer, WebSocketMessageType.Text, true, context.RequestAborted);
+                                if (webSocket.State != WebSocketState.Open || context.RequestAborted.IsCancellationRequested)
+                                    break;
+                            }
+                            catch
+                            {
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // Log offending values (those we attempted to serialize)
+                            wsLogger.LogError(ex, "Failed to serialize WS SimVar payload. Values: {Values}", string.Join(";", response.Select(kv => kv.Key + "=" + kv.Value)));
+                            // Skip sending this cycle
+                        }
                     }
                 }
 

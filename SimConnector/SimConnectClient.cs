@@ -3,6 +3,8 @@ using Microsoft.FlightSimulator.SimConnect;
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace SimConnector
 {
@@ -15,6 +17,15 @@ namespace SimConnector
         private SimConnectWindow simConnectWindow;
         private System.Threading.Timer _messageTimer;
         private const int DISPATCH_INTERVAL_MS = 100;
+
+        // Queue for serializing all SimConnect calls (API is not thread-safe)
+        private readonly Channel<Action<SimConnect>> _commandQueue = Channel.CreateUnbounded<Action<SimConnect>>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+        private CancellationTokenSource _queueCts = new();
+        private Task? _queueProcessorTask;
 
         public event Action? OnConnected;
         public event Action? OnDisconnected;
@@ -37,7 +48,72 @@ namespace SimConnector
             _logger = logger;
             simConnectWindow = new SimConnectWindow();
             simConnectWindow.Create();
+            StartQueueProcessor();
             TryConnect();
+        }
+
+        private void StartQueueProcessor()
+        {
+            // Start single reader processor for queued commands
+            _queueProcessorTask = Task.Run(async () =>
+            {
+                try
+                {
+                    while (await _commandQueue.Reader.WaitToReadAsync(_queueCts.Token).ConfigureAwait(false))
+                    {
+                        while (_commandQueue.Reader.TryRead(out var action))
+                        {
+                            try
+                            {
+                                // Wait until we have a connected SimConnect instance
+                                if (_simConnect == null || !IsConnected)
+                                {
+                                    // Poll until connected or cancelled
+                                    while ((_simConnect == null || !IsConnected) && !_queueCts.IsCancellationRequested)
+                                    {
+                                        await Task.Delay(50, _queueCts.Token).ConfigureAwait(false);
+                                    }
+                                }
+
+                                if (_simConnect != null && IsConnected && !_queueCts.IsCancellationRequested)
+                                {
+                                    action(_simConnect);
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                return; // shutting down
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Exception executing SimConnect queued action.");
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // normal shutdown
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "SimConnect command queue processor terminated unexpectedly.");
+                }
+            }, _queueCts.Token);
+        }
+
+        private void Enqueue(Action<SimConnect> action)
+        {
+            if (_queueCts.IsCancellationRequested)
+            {
+                _logger.LogWarning("Attempted to enqueue after queue cancellation.");
+                return;
+            }
+            if (!_commandQueue.Writer.TryWrite(action))
+            {
+                // fallback to async write if backpressure somehow applies (unbounded shouldn't)
+                _ = _commandQueue.Writer.WriteAsync(action);
+            }
         }
 
         public void Disconnect()
@@ -49,7 +125,6 @@ namespace SimConnector
                 _simConnect.Dispose();
                 _simConnect = null;
             }
-            simConnectWindow.Destroy();
             IsConnected = false;
             OnDisconnected?.Invoke();
         }
@@ -140,54 +215,80 @@ namespace SimConnector
         // --- Methods for SimVarService and SimEventService ---
         public void AddToDataDefinition(DEFINITION defineId, SimVarReference reference)
         {
-            _simConnect?.AddToDataDefinition(
-                defineId,
-                reference.SimVarName,
-                reference.Unit,
-                SIMCONNECT_DATATYPE.FLOAT64,
-                0.0f,
-                SimConnect.SIMCONNECT_UNUSED
-            );
-            _simConnect?.RegisterDataDefineStruct<double>(defineId);
+            if (reference == null) return;
+            Enqueue(sim =>
+            {
+                sim.AddToDataDefinition(
+                    defineId,
+                    reference.SimVarName,
+                    reference.Unit,
+                    SIMCONNECT_DATATYPE.FLOAT64,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+                sim.RegisterDataDefineStruct<double>(defineId);
+            });
         }
 
         public void RequestDataOnSimObject(REQUEST requestId, DEFINITION defineId)
         {
-            _simConnect?.RequestDataOnSimObject(
-                requestId,
-                defineId,
-                SimConnect.SIMCONNECT_OBJECT_ID_USER,
-                SIMCONNECT_PERIOD.ONCE,
-                SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
-                0, 0, 0
-            );
+            Enqueue(sim =>
+            {
+                sim.RequestDataOnSimObject(
+                    requestId,
+                    defineId,
+                    SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_PERIOD.ONCE,
+                    SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
+                    0, 0, 0
+                );
+            });
         }
 
         public void SetDataOnSimObject(DEFINITION defineId, double value)
         {
-            _simConnect?.SetDataOnSimObject(
-                defineId,
-                SimConnect.SIMCONNECT_OBJECT_ID_USER,
-                SIMCONNECT_DATA_SET_FLAG.DEFAULT,
-                value
-            );
+            Enqueue(sim =>
+            {
+                sim.SetDataOnSimObject(
+                    defineId,
+                    SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT,
+                    value
+                );
+            });
         }
 
         public void RegisterSimEvent(int simEventNum, string eventName)
         {
-            _simConnect?.MapClientEventToSimEvent((EVENT)simEventNum, eventName);
-            _simConnect?.AddClientEventToNotificationGroup((GROUP_ID)0, (EVENT)simEventNum, false);
+            if (string.IsNullOrWhiteSpace(eventName)) return;
+            Enqueue(sim =>
+            {
+                sim.MapClientEventToSimEvent((EVENT)simEventNum, eventName);
+                sim.AddClientEventToNotificationGroup((GROUP_ID)0, (EVENT)simEventNum, false);
+            });
         }
 
         public void TransmitSimEvent(int simEventNum, uint value)
         {
-            _simConnect?.TransmitClientEvent(
-                SimConnect.SIMCONNECT_OBJECT_ID_USER,
-                (EVENT)simEventNum,
-                value,
-                (GROUP_ID)0,
-                SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY
-            );
+            Enqueue(sim =>
+            {
+                sim.TransmitClientEvent(
+                    SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    (EVENT)simEventNum,
+                    value,
+                    (GROUP_ID)0,
+                    SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY
+                );
+            });
+        }
+
+        // Cleanup resources if needed (optional public dispose pattern could be added)
+        public void Shutdown()
+        {
+            _queueCts.Cancel();
+            try { _queueProcessorTask?.Wait(1000); } catch { /* ignore */ }
+            Disconnect();
+            simConnectWindow.Destroy();
         }
     }
 }

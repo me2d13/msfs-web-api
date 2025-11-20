@@ -23,7 +23,11 @@ class Program
         // Configure logging from config
         string logFilePath = ResolveLogFilePath(config.General.LogFile);
         var logLevel = ParseLogLevel(config.General.LogLevel);
-        
+
+        // Apply global minimum log level so factory does not filter out Debug/Trace when requested
+        builder.Logging.SetMinimumLevel(logLevel);
+        builder.Services.Configure<LoggerFilterOptions>(o => o.MinLevel = logLevel);
+
         if (!string.IsNullOrWhiteSpace(logFilePath))
         {
             try
@@ -37,6 +41,9 @@ class Program
                 builder.Logging.ClearProviders();
                 builder.Logging.AddProvider(new SimpleFileLoggerProvider(logFilePath, logLevel));
                 builder.Logging.AddDebug();
+                // Ensure min level still applied after provider changes
+                builder.Logging.SetMinimumLevel(logLevel);
+                builder.Services.Configure<LoggerFilterOptions>(o => o.MinLevel = logLevel);
             }
             catch
             {
@@ -55,6 +62,8 @@ class Program
         var logger = app.Services.GetRequiredService<ILogger<Program>>();
         logger.LogInformation("Configuration: {ConfigSummary}", configResult.Diagnostics.GetSummary());
         logger.LogInformation("Log level: {LogLevel}", logLevel);
+        logger.LogInformation("Debug enabled: {Enabled}", logger.IsEnabled(LogLevel.Debug));
+        logger.LogDebug("Debug logging confirmed active at level {Level}", logLevel);
 
         // Start UDP streaming if enabled in config
         UdpStreamingService? udpService = null;
