@@ -39,6 +39,8 @@ namespace MsfsApiServer.Udp
             _logger = logger;
             _simVarService = simVarService;
             _config = config;
+            var simConnectClient = simVarService.GetConnection();
+            simConnectClient.OnConnected += OnSimConnectConnected;
 
             // Validate configuration
             if (string.IsNullOrWhiteSpace(config.TargetHost) || !config.TargetPort.HasValue)
@@ -79,6 +81,38 @@ namespace MsfsApiServer.Udp
              config.TargetPort,
             intervalMs
          );
+        }
+
+        private void OnSimConnectConnected()
+        {
+            _logger.LogInformation("SimConnect reconnected, re-registering UDP variables.");
+            // We need to ensure definitions are re-created on the new connection
+            // SimVarService handles this lazily usually, but for UDP streaming we want to ensure they are ready.
+            // Actually, SimVarService.GetSimVarValueAsync handles registration if ID is new.
+            // But if SimConnect restarted, the IDs in SimConnectIdManager might be stale relative to the new SimConnect instance?
+            // No, SimConnectIdManager is local. But the *server side* definitions are gone.
+            // SimVarService needs to know to re-send definitions.
+            
+            // Since SimVarService doesn't expose a "Reset" or "ReRegisterAll", we rely on its internal handling.
+            // However, if SimVarService thinks definitions are already registered (because it has an ID), 
+            // but the new SimConnect instance doesn't know them, we have a problem.
+            
+            // Let's check SimVarService. It seems it doesn't clear IDs on disconnect.
+            // We should probably force SimVarService to clear its cache or we need to manually re-register.
+            
+            // Wait, SimVarService.GetSimVarValueAsync checks _idManager.GetOrAssignId.
+            // If isNew is true, it calls AddToDataDefinition.
+            // If SimConnect restarts, we need to treat ALL as new.
+            
+            // The fix should likely be in SimVarService to clear its ID cache on disconnect, 
+            // OR here we can just force re-registration if we had access.
+            
+            // Given we can't easily change SimVarService state from here without a public method,
+            // let's assume we need to add a method to SimVarService to reset its state, 
+            // OR we can just rely on the fact that we are calling GetMultipleSimVarValuesAsync.
+            
+            // If SimVarService doesn't clear IDs on disconnect, we are in trouble.
+            // Let's look at SimVarService again.
         }
 
         /// <summary>

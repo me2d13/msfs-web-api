@@ -85,6 +85,13 @@ class Program
             }
         }
 
+        // Hook up SimConnect events to TrayIconManager
+        var simConnectClient = app.Services.GetRequiredService<SimConnectClient>();
+        simConnectClient.OnConnected += () => TrayIconManager.SetSimConnectStatus(true);
+        simConnectClient.OnDisconnected += () => TrayIconManager.SetSimConnectStatus(false);
+        // Initial status check (in case it connected very fast)
+        TrayIconManager.SetSimConnectStatus(simConnectClient.IsConnected);
+
         // Start the tray icon UI
         TrayIconManager.Start(actualPort, localIp);
 

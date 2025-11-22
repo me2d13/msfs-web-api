@@ -26,6 +26,8 @@ namespace SimConnector
         });
         private CancellationTokenSource _queueCts = new();
         private Task? _queueProcessorTask;
+        private CancellationTokenSource _connectionCts = new();
+        private Task? _connectionMonitorTask;
 
         public event Action? OnConnected;
         public event Action? OnDisconnected;
@@ -49,7 +51,30 @@ namespace SimConnector
             simConnectWindow = new SimConnectWindow();
             simConnectWindow.Create();
             StartQueueProcessor();
-            TryConnect();
+
+            StartConnectionMonitor();
+        }
+
+        private void StartConnectionMonitor()
+        {
+            _connectionMonitorTask = Task.Run(async () =>
+            {
+                while (!_connectionCts.IsCancellationRequested)
+                {
+                    if (!IsConnected)
+                    {
+                        TryConnect();
+                    }
+                    try
+                    {
+                        await Task.Delay(5000, _connectionCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }, _connectionCts.Token);
         }
 
         private void StartQueueProcessor()
@@ -138,9 +163,9 @@ namespace SimConnector
             TryConnect();
         }
 
-        private void TryConnect()
+        private bool TryConnect()
         {
-            _logger.LogInformation("Attempting SimConnect connection.");
+            _logger.LogDebug("Attempting SimConnect connection.");
             try
             {
                 IntPtr hWnd = simConnectWindow.Handle;
@@ -160,19 +185,21 @@ namespace SimConnector
                     0,
                     DISPATCH_INTERVAL_MS
                 );
-                OnConnected?.Invoke();
+                // OnConnected will be invoked when OnRecvOpen is received
+                return true;
             }
-            catch (COMException ex)
+            catch (COMException)
             {
                 IsConnected = false;
-                _logger.LogWarning(ex, "SimConnect COMException during connection.");
-                OnDisconnected?.Invoke();
+                // This is expected if MSFS is not running
+                _logger.LogDebug("SimConnect unavailable (MSFS not running?). Retrying in 5s.");
+                return false;
             }
             catch (Exception ex)
             {
                 IsConnected = false;
                 _logger.LogError(ex, "SimConnect general exception during connection.");
-                OnDisconnected?.Invoke();
+                return false;
             }
         }
 
@@ -204,6 +231,7 @@ namespace SimConnector
         private void SimConnect_OnRecvOpen(SimConnect sender, SIMCONNECT_RECV_OPEN data)
         {
             _logger.LogInformation("SimConnect_OnRecvOpen");
+            OnConnected?.Invoke();
             OnRecvOpen?.Invoke(sender, data);
         }
 
@@ -286,7 +314,9 @@ namespace SimConnector
         public void Shutdown()
         {
             _queueCts.Cancel();
+            _connectionCts.Cancel();
             try { _queueProcessorTask?.Wait(1000); } catch { /* ignore */ }
+            try { _connectionMonitorTask?.Wait(1000); } catch { /* ignore */ }
             Disconnect();
             simConnectWindow.Destroy();
         }

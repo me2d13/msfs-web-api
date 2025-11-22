@@ -53,10 +53,14 @@ namespace SimConnector
                     {
                         _logger.LogWarning("SimConnect disconnected. Will attempt reconnection in the background.");
                         _lastKnownConnectionState = false;
+                        // Clear ID cache on disconnect so we re-register definitions on reconnect
+                        _idManager.Clear();
                     }
                 }
             };
         }
+
+        public SimConnectClient GetConnection() => _connection;
 
         private void OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
         {
