@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MsfsApiServer.Logging;
 using MsfsApiServer.Configuration;
 using MsfsApiServer.Udp;
+using MsfsApiServer.Serial;
 using SimConnector;
 
 class Program
@@ -82,6 +83,23 @@ class Program
             {
                 logger.LogError(ex, "Failed to start UDP streaming");
                 // Continue without UDP streaming if it fails
+            }
+        }
+
+        // Start Serial streaming if enabled in config
+        SerialStreamingService? serialService = null;
+        if (config.Serial.Enabled)
+        {
+            try
+            {
+                var simVarService = app.Services.GetRequiredService<SimVarService>();
+                var serialLogger = app.Services.GetRequiredService<ILogger<SerialStreamingService>>();
+                serialService = new SerialStreamingService(simVarService, config.Serial, serialLogger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to start Serial streaming");
+                // Continue without Serial streaming if it fails
             }
         }
 

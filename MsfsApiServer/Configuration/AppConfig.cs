@@ -15,6 +15,9 @@ namespace MsfsApiServer.Configuration
 
         [YamlMember(Alias = "udp")]
         public UdpConfig Udp { get; set; } = new();
+
+        [YamlMember(Alias = "serial")]
+        public SerialConfig Serial { get; set; } = new();
     }
 
     public class GeneralConfig
@@ -42,6 +45,42 @@ namespace MsfsApiServer.Configuration
 
         [YamlMember(Alias = "targetPort")]
         public int? TargetPort { get; set; }
+
+        [YamlMember(Alias = "interval")]
+        public int? Interval { get; set; }
+
+        [YamlMember(Alias = "variables")]
+        public List<string> Variables { get; set; } = new();
+    }
+
+    public class SerialConfig
+    {
+        [YamlMember(Alias = "enabled")]
+        public bool Enabled { get; set; } = false;
+
+        /// <summary>COM port name, e.g. "COM3" or "/dev/ttyUSB0"</summary>
+        [YamlMember(Alias = "comPort")]
+        public string? ComPort { get; set; }
+
+        /// <summary>Baud rate, e.g. 9600, 115200</summary>
+        [YamlMember(Alias = "baudRate")]
+        public int BaudRate { get; set; } = 9600;
+
+        /// <summary>Parity: None, Odd, Even, Mark, Space (default: None)</summary>
+        [YamlMember(Alias = "parity")]
+        public string Parity { get; set; } = "None";
+
+        /// <summary>Data bits: 5, 6, 7, or 8 (default: 8)</summary>
+        [YamlMember(Alias = "dataBits")]
+        public int DataBits { get; set; } = 8;
+
+        /// <summary>Stop bits: One, OnePointFive, Two (default: One)</summary>
+        [YamlMember(Alias = "stopBits")]
+        public string StopBits { get; set; } = "One";
+
+        /// <summary>Handshake: None, XOnXOff, RequestToSend, RequestToSendXOnXOff (default: None)</summary>
+        [YamlMember(Alias = "handshake")]
+        public string Handshake { get; set; } = "None";
 
         [YamlMember(Alias = "interval")]
         public int? Interval { get; set; }

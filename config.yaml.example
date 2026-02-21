@@ -35,3 +35,46 @@ udp:
     - "AIRSPEED INDICATED"
     - "HEADING INDICATOR"
     - "VERTICAL SPEED"
+
+serial:
+  # Enable Serial port streaming (optional)
+  # Default: false (serial streaming disabled)
+  # Set to true to enable serial output
+  enabled: false
+
+  # Serial port name (required when enabled)
+  # Windows: "COM3", "COM4", etc.
+  comPort: "COM3"
+
+  # Baud rate (default: 9600)
+  # Common values: 4800, 9600, 19200, 38400, 57600, 115200
+  baudRate: 115200
+
+  # Parity (default: None)
+  # Options: None, Odd, Even, Mark, Space
+  parity: "None"
+
+  # Data bits (default: 8)
+  # Options: 5, 6, 7, 8
+  dataBits: 8
+
+  # Stop bits (default: One)
+  # Options: One, OnePointFive, Two
+  stopBits: "One"
+
+  # Handshake / flow control (default: None)
+  # Options: None, XOnXOff, RequestToSend, RequestToSendXOnXOff
+  handshake: "None"
+
+  # Update interval in milliseconds
+  # Default: 1000ms
+  interval: 200
+
+  # List of SimVar names to stream via serial port
+  # Each variable will be queried and sent at the specified interval
+  # Use "VAR NAME|alias" to send under a custom key name
+  variables:
+    - "PLANE ALTITUDE|altitude"
+    - "AIRSPEED INDICATED|airspeed"
+    - "HEADING INDICATOR|heading"
+    - "VERTICAL SPEED|verticalSpeed"

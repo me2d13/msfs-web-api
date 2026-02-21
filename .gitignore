@@ -8,6 +8,7 @@
 # Build results
 [Bb]in/
 [Oo]bj/
+release/
 
 # NuGet
 *.nupkg
