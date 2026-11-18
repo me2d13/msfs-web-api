@@ -33,6 +33,7 @@ namespace SimConnector
         public event Action? OnDisconnected;
         public event Action<SimConnect, SIMCONNECT_RECV_EXCEPTION>? OnRecvException;
         public event Action<SimConnect, SIMCONNECT_RECV_SIMOBJECT_DATA>? OnRecvSimVar;
+        public event Action<SimConnect, SIMCONNECT_RECV_CLIENT_DATA>? OnRecvClientData;
         public event Action<SimConnect, SIMCONNECT_RECV>? OnRecvQuit;
         public event Action<SimConnect, SIMCONNECT_RECV_OPEN>? OnRecvOpen;
 
@@ -44,6 +45,8 @@ namespace SimConnector
         public enum REQUEST { Dummy = 0, Struct1 };
         public enum EVENT { Dummy = 0 };
         public enum GROUP_ID { GROUP0 = 0 };
+        public enum CLIENT_DATA_ID { Dummy = 0 };
+        public enum CLIENT_DATA_DEFINITION { Dummy = 0 };
 
         public SimConnectClient(ILogger<SimConnectClient> logger)
         {
@@ -176,6 +179,7 @@ namespace SimConnector
                 _simConnect.OnRecvQuit += SimConnect_OnRecvQuit;
                 _simConnect.OnRecvException += SimConnect_OnRecvException;
                 _simConnect.OnRecvSimobjectData += SimConnect_OnRecvSimVar;
+                _simConnect.OnRecvClientData += SimConnect_OnRecvClientData;
 
                 _logger.LogInformation("SimConnect connection established, starting message timer.");
 
@@ -238,6 +242,69 @@ namespace SimConnector
         private void SimConnect_OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
         {
             OnRecvSimVar?.Invoke(sender, data);
+        }
+
+        private void SimConnect_OnRecvClientData(SimConnect sender, SIMCONNECT_RECV_CLIENT_DATA data)
+        {
+            OnRecvClientData?.Invoke(sender, data);
+        }
+
+        // --- Methods for ClientDataService ---
+        public void MapClientDataArea(string areaName, int areaId)
+        {
+            if (string.IsNullOrWhiteSpace(areaName)) return;
+            Enqueue(sim =>
+            {
+                sim.MapClientDataNameToID(areaName, (CLIENT_DATA_ID)areaId);
+            });
+        }
+
+        public void AddClientDataDefinition(int defineId, int offset, uint sizeOrType)
+        {
+            Enqueue(sim =>
+            {
+                sim.AddToClientDataDefinition(
+                    (CLIENT_DATA_DEFINITION)defineId,
+                    (uint)offset,
+                    sizeOrType,
+                    0.0f,
+                    0
+                );
+            });
+        }
+
+        public void RequestClientDataOnce(int areaId, int requestId, int defineId)
+        {
+            Enqueue(sim =>
+            {
+                sim.RequestClientData(
+                    (CLIENT_DATA_ID)areaId,
+                    (REQUEST)requestId,
+                    (CLIENT_DATA_DEFINITION)defineId,
+                    SIMCONNECT_CLIENT_DATA_PERIOD.ONCE,
+                    SIMCONNECT_CLIENT_DATA_REQUEST_FLAG.DEFAULT,
+                    0, 0, 0
+                );
+            });
+        }
+
+        /// <summary>
+        /// Subscribes to a client data field: SimConnect pushes it whenever the add-on that owns
+        /// the area writes new data, instead of the caller polling for it.
+        /// </summary>
+        public void RequestClientDataSubscription(int areaId, int requestId, int defineId)
+        {
+            Enqueue(sim =>
+            {
+                sim.RequestClientData(
+                    (CLIENT_DATA_ID)areaId,
+                    (REQUEST)requestId,
+                    (CLIENT_DATA_DEFINITION)defineId,
+                    SIMCONNECT_CLIENT_DATA_PERIOD.ON_SET,
+                    SIMCONNECT_CLIENT_DATA_REQUEST_FLAG.DEFAULT,
+                    0, 0, 0
+                );
+            });
         }
 
         // --- Methods for SimVarService and SimEventService ---

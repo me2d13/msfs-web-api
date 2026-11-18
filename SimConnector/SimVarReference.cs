@@ -22,9 +22,28 @@ namespace SimConnector
         /// Supports pipe delimiter format: "ACTUAL_VAR_NAME|OUTPUT_ALIAS"
         /// </summary>
         public string? OutputAlias { get; init; }
+
+        /// --- Client data ("CLIENT:" references) ---
+        /// <summary>True when this reference points into a SimConnect client data area.</summary>
+        public bool IsClientData { get; init; }
+        /// <summary>Numeric ID of the client data area, as published by the add-on that created it.</summary>
+        public int ClientAreaId { get; init; }
+        /// <summary>Byte offset of the field inside the client data area.</summary>
+        public int ClientOffset { get; init; }
+        /// <summary>
+        /// dwSizeOrType for AddToClientDataDefinition: a byte count or one of the
+        /// SIMCONNECT_CLIENTDATATYPE_* constants.
+        /// </summary>
+        public uint ClientSizeOrType { get; init; }
+        /// <summary>Declared type name, used in logs and diagnostics.</summary>
+        public string ClientTypeName { get; init; } = "float64";
+
         /// <summary>
         /// Gets the name to use in output (alias if set, otherwise SimVarName).
         /// </summary>
         public string GetOutputName() => OutputAlias ?? SimVarName;
+
+        /// <summary>Stable identity of a client data field (area + offset + type).</summary>
+        public string ClientKey() => $"{SimVarName}:{ClientAreaId}:{ClientOffset}:{ClientSizeOrType}";
     }
 }

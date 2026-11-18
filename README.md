@@ -150,6 +150,60 @@ curl -X POST http://localhost:5018/api/simvar/get \
 
 Without aliases, responses use the full variable name. Mix and match as needed!
 
+## Client Data Areas (`CLIENT:` variables)
+
+Add-ons such as the PMDG 737 share state through SimConnect **client data areas** - named byte
+blocks that other SimConnect clients can read. These are not SimVars, so they are addressed
+explicitly with a `CLIENT:` prefix:
+
+```
+CLIENT:AREA_NAME[@AREA_ID]:OFFSET[:TYPE]|OUTPUT_ALIAS
+```
+
+- `AREA_NAME` - the published name of the area, e.g. `PMDG_NG3_Data`.
+- `@AREA_ID` - optional. Some areas are identified by a numeric ID published by the add-on
+  (`PMDG_NG3_Data` is `0x4E473331`). Known areas are pre-registered; for anything else supply it.
+- `OFFSET` - byte offset inside the area, decimal or `0x` hex. Offsets come from the add-on's SDK header.
+- `TYPE` - optional: `bool`/`byte`, `int8`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`,
+  `float`, `double` (default `double`). Unsigned variants matter for C `unsigned char`/`unsigned short` fields.
+- `OUTPUT_ALIAS` - same pipe syntax as SimVars, so UDP/WS/JSON keys stay short.
+
+```bash
+curl -X POST http://localhost:5018/api/simvar/get \
+  -H 'Content-Type: application/json' \
+  -d '{"simVarName": "CLIENT:PMDG_NG3_Data:0x1B5:bool|AT_ARM"}'
+```
+
+```json
+{"AT_ARM": 1}
+```
+
+Works everywhere SimVars do: `get`, `getMultiple`, WebSocket streaming and UDP streaming.
+Read-only, and a missing area (add-on not loaded, broadcast disabled) never reaches SimConnect:
+the value comes back as `NaN`, which serializes to `null` in JSON and is dropped from
+UDP/WebSocket payloads rather than reported as `0`.
+
+**Caching.** Each field is subscribed once with `SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET`, so
+SimConnect pushes new data as the add-on writes it and reads are served from a cache instead of
+a request per read. The first read of a field is primed with a one-shot request, and a cached
+value that has not been refreshed for two seconds is primed again. That keeps streaming loops at
+their configured rate: 21 fields stream at 50 ms with the cache, while eight fields could not
+hold a 100 ms interval when every read was a round trip.
+
+Implementation notes, verified against MSFS 2024 and the PMDG 737:
+
+- The managed SimConnect wrapper hands back client data as a single 32-bit word per definition,
+  whatever the declared type or size, so fields are read as raw byte ranges and decoded here.
+  Fields wider than 4 bytes (`int64`, `double`) are fetched as two 4-byte chunks.
+- A definition may only hold one field: adding a second one makes SimConnect reject it with
+  `SIMCONNECT_EXCEPTION_DUPLICATE_ID`. Each field therefore gets its own definition, and its own
+  subscription.
+- `RegisterDataDefineStruct` has no effect on client data replies.
+- `ON_SET` delivered roughly 14 updates/second on a PMDG 737, `SECOND` exactly one, and
+  `VISUAL_FRAME` about 54 - too many to be worth subscribing to.
+- Areas are identified by the numeric ID their creator used, so the published ID has to match
+  (see `KnownClientDataAreas`).
+
 ## API Endpoints
 
 - `GET /api/status` - Check API server and MSFS connection status
@@ -318,8 +372,8 @@ Stream live updates for one or more SimVars over WebSocket.
 
 - `interval` (int, optional): update interval in seconds. Default: `2`.
 - `alwaysUpdate` (bool, optional):
-  - `false` (default) – send only when values change.
-  - `true` – force send every interval even if values did not change.
+  - `false` (default)   send only when values change.
+  - `true`   force send every interval even if values did not change.
 
 ### Example WebSocket URL
 
@@ -330,6 +384,22 @@ ws://localhost:5018/api/simvar/register?interval=1&alwaysUpdate=true
 ### Simple Test Page
 
 A basic test page is included at `tools/ws-test.html`. It connects to the WebSocket endpoint, sends a JSON array as the first message, and prints responses.
+
+A plain GET test page for single/multiple SimVars and `CLIENT:` fields is at `tools/get-test.html`.
+
+`tools/pmdg-fields.html` browses the PMDG NG3 SDK fields: search by name or description, filter by
+section, and get the ready-to-paste `CLIENT:` variable for a field (offsets and types are computed
+from the SDK header with C alignment rules). Each row has a *Test* button that reads the field from
+the running API. The SDK header is embedded in the page, so it works offline; after a PMDG update,
+either pick the installed `PMDG_NG3_SDK.h` with the page's file input (parsed in the browser, nothing
+is uploaded) or refresh the checked-in copy with:
+
+```bash
+node tools/update-pmdg-fields.js "C:\...\Community\pmdg-aircraft-738\Documentation\SDK\PMDG_NG3_SDK.h"
+```
+
+That page is why no PMDG field table is compiled into the server: the offset contract lives in the
+header, and regenerating it is a command, not a code change.
 
 ### CLI Test with wscat
 

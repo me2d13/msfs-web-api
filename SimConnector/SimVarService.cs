@@ -11,6 +11,7 @@ namespace SimConnector
     {
         private readonly SimConnectClient _connection;
         private readonly ILogger<SimVarService> _logger;
+        private readonly ClientDataService _clientDataService;
         private readonly SimConnectIdManager _idManager = new SimConnectIdManager();
         private int _nextRequestId = 0;
         private readonly ConcurrentDictionary<uint, PendingRequest> _pendingRequests = new();
@@ -30,6 +31,7 @@ namespace SimConnector
         {
             _connection = connection;
             _logger = logger;
+            _clientDataService = new ClientDataService(connection, logger);
             _connection.OnRecvSimVar += OnRecvSimVar;
 
             // Subscribe to connection state changes
@@ -62,6 +64,11 @@ namespace SimConnector
 
         public SimConnectClient GetConnection() => _connection;
 
+        /// <summary>
+        /// Client data reader used for "CLIENT:" references.
+        /// </summary>
+        public ClientDataService GetClientDataService() => _clientDataService;
+
         private void OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
         {
             uint requestId = data.dwRequestID;
@@ -81,6 +88,11 @@ namespace SimConnector
 
         public async Task<SimVarReference?> GetSimVarValueAsync(SimVarReference reference)
         {
+            if (reference != null && reference.IsClientData)
+            {
+                return await _clientDataService.GetClientDataValueAsync(reference);
+            }
+
             _logger.LogDebug($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}");
             if (!_connection.IsConnected)
             {
@@ -113,6 +125,12 @@ namespace SimConnector
 
         public async Task<SimVarReference?> SetSimVarValueAsync(SimVarReference reference)
         {
+            if (reference != null && reference.IsClientData)
+            {
+                _logger.LogWarning("Client data areas are read-only through this API; set ignored.");
+                return null;
+            }
+
             _logger.LogDebug($"SetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}, Value={reference?.Value}");
             if (!_connection.IsConnected)
             {

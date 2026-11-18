@@ -35,6 +35,8 @@ udp:
     - "AIRSPEED INDICATED"
     - "HEADING INDICATOR"
     - "VERTICAL SPEED"
+    # Client data areas from add-ons use the CLIENT: prefix
+    # - "CLIENT:PMDG_NG3_Data:0x1B5:bool|AT_ARM"
 
 serial:
   # Enable Serial port streaming (optional)

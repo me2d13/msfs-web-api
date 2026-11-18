@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SimVar / ClientData GET Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        input, button, textarea { margin: 0.4em 0; }
+        #result { white-space: pre; background: #f0f0f0; padding: 1em; border: 1px solid #ccc; min-height: 40px; }
+        #log { white-space: pre; background: #f7f7f7; padding: 1em; border: 1px solid #ccc; height: 220px; overflow-y: auto; }
+        table { border-collapse: collapse; margin-top: 0.5em; }
+        th, td { border: 1px solid #ccc; padding: 0.35em 0.6em; text-align: left; }
+        code { background: #eef; padding: 0.1em 0.3em; }
+        .muted { color: #666; font-size: 0.9em; }
+        .preset { font-size: 0.9em; padding: 0.3em 0.6em; }
+    </style>
+</head>
+<body>
+    <h2>SimVar / ClientData GET Test</h2>
+
+    <label>Server URL: <input id="base" size="40" value="http://localhost:5018"></label>
+
+    <h3>Single variable</h3>
+    <label>Variable: <input id="var" size="55" value="PLANE ALTITUDE|ALT"></label>
+    <button id="getBtn">Get</button>
+    <label>Poll every <input id="interval" type="number" value="0" style="width:60px"> ms (0 = once)</label>
+    <div id="result">no request yet</div>
+
+    <h3>Presets</h3>
+    <div>
+        <button class="preset" data-var="PLANE ALTITUDE|ALT">altitude</button>
+        <button class="preset" data-var="AIRSPEED INDICATED|IAS">IAS</button>
+        <button class="preset" data-var="AUTOTHROTTLE ACTIVE|A/T">A/T active</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x00:byte|IRS_SEL">PMDG IRS selector</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1B5:bool|AT_ARM">PMDG A/T arm sw</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1BA:bool|AT_ARM_LIGHT">PMDG A/T arm light</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1E:bool|AT_SERVO">PMDG AT servo</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1A4:float|IAS_MACH">PMDG MCP speed</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1AC:uint16|HDG_SEL">PMDG MCP heading</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1AE:uint16|ALT_SEL">PMDG MCP altitude</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1B0:int16|VS_SEL">PMDG MCP VS</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x1B7:bool|DISBAR">PMDG disengage bar</button>
+        <button class="preset" data-var="CLIENT:PMDG_NG3_Data:0x74:float|FUEL_CTR">PMDG ctr fuel qty</button>
+    </div>
+
+    <h3>Multiple variables (one per line)</h3>
+    <textarea id="multi" rows="5" cols="60">PLANE ALTITUDE|ALT
+AIRSPEED INDICATED|IAS
+CLIENT:PMDG_NG3_Data:0x1AD:bool|AT_ARM</textarea><br>
+    <button id="multiBtn">Get multiple</button>
+
+    <div id="log"></div>
+
+    <h3>Format</h3>
+    <p class="muted">SimVars and client data fields share the <code>|alias</code> suffix, so the JSON key can be shorter than the name.</p>
+    <table>
+        <tr><th>Form</th><th>Example</th><th>Meaning</th></tr>
+        <tr><td><code>VAR</code></td><td><code>PLANE ALTITUDE</code></td><td>ordinary SimVar, key = SimVar name</td></tr>
+        <tr><td><code>VAR|alias</code></td><td><code>PLANE ALTITUDE|ALT</code></td><td>ordinary SimVar, key = <code>ALT</code></td></tr>
+        <tr><td><code>CLIENT:area:offset:type</code></td><td><code>CLIENT:PMDG_NG3_Data:0x1AD:bool</code></td><td>bytes at <code>offset</code> in the area, read as <code>type</code></td></tr>
+        <tr><td><code>CLIENT:area:offset</code></td><td><code>CLIENT:PMDG_NG3_Data:0x74</code></td><td>same, default type <code>double</code></td></tr>
+        <tr><td><code>CLIENT:area@id:offset:type</code></td><td><code>CLIENT:MyAddOn@0x1234:0:float</code></td><td>explicit area ID for add-ons not in the registry</td></tr>
+    </table>
+    <p class="muted">
+        Types: <code>bool</code> / <code>byte</code>, <code>int8</code>, <code>int16</code>, <code>uint16</code>, <code>int32</code>, <code>uint32</code>,
+        <code>int64</code>, <code>uint64</code>, <code>float</code>, <code>double</code>. Offsets may be hex (<code>0x1B5</code>) or decimal. Client data is read-only;
+        a missing area (add-on not loaded, broadcast off) returns <code>null</code> in the JSON (the value is <code>NaN</code> internally).
+        Without an alias the key defaults to <code>area:offset</code>.
+    </p>
+    <p class="muted">
+        PMDG offsets in the presets come from the field order in <code>PMDG_NG3_SDK.h</code>
+        (<code>EnableDataBroadcast=1</code> in <code>737NG3_Options.ini</code> is required).
+        Derive them with C alignment in mind - a missed <code>unsigned short</code> shifts every
+        following field. The presets were checked against a live 737:
+        <code>0x1A4</code> speed window, <code>0x1AC</code> heading, <code>0x1AE</code> altitude,
+        <code>0x1B5</code> A/T arm switch, <code>0x1BA</code> A/T arm light.
+    </p>
+
+    <script>
+        let pollTimer = null;
+
+        function log(msg) {
+            const logDiv = document.getElementById('log');
+            logDiv.textContent += new Date().toLocaleTimeString() + "  " + msg + "\n";
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function baseUrl() {
+            return document.getElementById('base').value.trim().replace(/\/$/, "");
+        }
+
+        async function getSingle() {
+            const name = document.getElementById('var').value.trim();
+            if (!name) { log("Empty variable name."); return; }
+
+            const started = Date.now();
+            try {
+                const resp = await fetch(baseUrl() + "/api/simvar/get", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ simVarName: name, unit: "" })
+                });
+                const text = await resp.text();
+                document.getElementById('result').textContent =
+                    (resp.ok ? "OK " : "HTTP " + resp.status + " ") + (Date.now() - started) + " ms\n" + text;
+                if (!resp.ok) log("GET " + name + " -> HTTP " + resp.status + " " + text);
+            } catch (err) {
+                document.getElementById('result').textContent = "request failed: " + err.message;
+                log("GET " + name + " -> " + err.message);
+            }
+        }
+
+        async function getMultiple() {
+            const lines = document.getElementById('multi').value
+                .split("\n").map(l => l.trim()).filter(l => l.length > 0);
+            if (lines.length === 0) { log("No variables listed."); return; }
+
+            const started = Date.now();
+            try {
+                const resp = await fetch(baseUrl() + "/api/simvar/getMultiple", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(lines.map(l => ({ simVarName: l, unit: "" })))
+                });
+                const text = await resp.text();
+                document.getElementById('result').textContent =
+                    (resp.ok ? "OK " : "HTTP " + resp.status + " ") + (Date.now() - started) + " ms\n" + text;
+                log("GET " + lines.length + " vars -> " + text);
+            } catch (err) {
+                document.getElementById('result').textContent = "request failed: " + err.message;
+                log("GET multiple -> " + err.message);
+            }
+        }
+
+        function startPolling() {
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+            const ms = parseInt(document.getElementById('interval').value || "0", 10);
+            if (ms > 0) {
+                pollTimer = setInterval(getSingle, ms);
+                log("Polling every " + ms + " ms.");
+            }
+        }
+
+        document.getElementById('getBtn').addEventListener('click', () => { getSingle(); startPolling(); });
+        document.getElementById('multiBtn').addEventListener('click', getMultiple);
+        document.querySelectorAll('.preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.getElementById('var').value = btn.dataset.var;
+                getSingle();
+            });
+        });
+    </script>
+</body>
+</html>
