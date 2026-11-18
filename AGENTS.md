@@ -20,17 +20,17 @@ client data work looked fine in `git show` and only showed up when the code ran.
 
 ## Line endings - read before committing
 
-The repository stores LF blobs while `core.autocrlf=true` writes CRLF into the working tree.
-Committing *part of* a file whose working copy has CRLF can land the hunks in the wrong place:
-we once committed four files with their added lines hoisted above the `namespace`, which did not
-compile, and it was only caught by building afterwards. To avoid it:
+`.gitattributes` pins text files to LF in the repository *and* in the working tree
+(`* text=auto eol=lf`), so a checkout always matches the stored blob. Keep it that way: if a file
+ends up with CRLF, convert it (`sd '\r$' '' <file>` - `sed -i` is not reliable on this share, it
+failed mid-write and removed files once) instead of committing it. `.bat`/`.cmd` are the
+deliberate exception (CRLF, because cmd.exe mis-parses LF-only batch files).
 
-- Keep the files you edit LF in the working tree. Convert with `sd '\r$' '' <file>`
-  (`sed -i` is not reliable here - it failed mid-write and removed files once).
-- After committing, check that the commit matches the tree:
-  `git show HEAD:<file> | cmp - <file>` for every committed path, then build.
-- Repo-wide alternative, not applied: a `.gitattributes` with `* text=auto eol=lf`, which makes
-  checkouts LF everywhere and removes the mismatch.
+Why it matters: committing *part of* a file whose working copy and blob disagree about line
+endings can land the hunks on the wrong lines. We once committed four files with their added
+lines hoisted above the `namespace`; it did not compile and was only caught by building
+afterwards. After any commit, check `git show HEAD:<file> | cmp - <file>` for the committed
+paths, then build.
 
 ## Client data areas
 

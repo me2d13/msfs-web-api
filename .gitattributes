@@ -1,0 +1,19 @@
+# Line endings: LF in the repository and in the working tree.
+#
+# By default git stores LF but checks files out as CRLF on Windows
+# (core.autocrlf=true), so the working copy and the stored blob disagree.
+# Committing part of such a file can then place hunks on the wrong lines,
+# which once put added lines above the namespace and broke the build
+# (see AGENTS.md). eol=lf makes checkouts LF too, so the two always match.
+* text=auto eol=lf
+
+# cmd.exe mis-parses batch files that use LF only.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never rewrite binaries.
+*.ico binary
+*.png binary
+*.dll binary
+*.exe binary
+*.pdb binary
