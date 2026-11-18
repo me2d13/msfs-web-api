@@ -179,9 +179,15 @@ curl -X POST http://localhost:5018/api/simvar/get \
 ```
 
 Works everywhere SimVars do: `get`, `getMultiple`, WebSocket streaming and UDP streaming.
-Read-only, and a missing area (add-on not loaded, broadcast disabled) never reaches SimConnect:
-the value comes back as `NaN`, which serializes to `null` in JSON and is dropped from
-UDP/WebSocket payloads rather than reported as `0`.
+Read-only, and a field that cannot be read (add-on not loaded, broadcast disabled, offset past the
+end of the area) never reaches SimConnect as a SimVar: the value comes back as `NaN`, which
+serializes to `null` in JSON (`{"MCP_ALT": null}`) and is dropped from UDP/WebSocket payloads
+rather than reported as `0`. A request that yields no result at all - a malformed reference, or
+SimConnect not connected - answers `null` with HTTP 200.
+
+A wrong offset is worth watching for: SimConnect reports
+`SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS` (31) for the definition and never replies, so the first read
+of that field waits out the 2 s timeout before returning `null`.
 
 **Caching.** Each field is subscribed once with `SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET`, so
 SimConnect pushes new data as the add-on writes it and reads are served from a cache instead of

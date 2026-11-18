@@ -57,10 +57,10 @@ public static class WebApiHost
             // Normalize reference to parse alias if embedded in SimVarName
             var normalized = SimVarParser.NormalizeReference(reference);
             var result = await simVarService.GetSimVarValueAsync(normalized);
-            if (result == null) return Results.Json(null);
+            if (result == null) return Results.Text("null", "application/json");
             
             // Return as {outputName: value}
-            var response = new Dictionary<string, double> { { result.GetOutputName(), result.Value } };
+            var response = new Dictionary<string, double?> { { result.GetOutputName(), JsonNumber(result.Value) } };
             return Results.Json(response);
         });
         
@@ -69,7 +69,7 @@ public static class WebApiHost
             // Normalize reference to parse alias if embedded in SimVarName
             var normalized = SimVarParser.NormalizeReference(reference);
             var result = await simVarService.SetSimVarValueAsync(normalized);
-            if (result == null) return Results.Json(null);
+            if (result == null) return Results.Text("null", "application/json");
             
             // Return as {outputName: value}
             var response = new Dictionary<string, double> { { result.GetOutputName(), result.Value } };
@@ -83,7 +83,7 @@ public static class WebApiHost
             var results = await simVarService.GetMultipleSimVarValuesAsync(normalized);
             
             // Return as {outputName: value, ...}
-            var response = results.ToDictionary(r => r.GetOutputName(), r => r.Value);
+            var response = results.ToDictionary(r => r.GetOutputName(), r => JsonNumber(r.Value));
             return Results.Json(response);
         });
         
@@ -341,5 +341,16 @@ public static class WebApiHost
             // ignore other errors and fall back to state check
         }
         return webSocket.State != WebSocketState.Open;
+    }
+
+    /// <summary>
+    /// JSON has no NaN or Infinity literal and System.Text.Json refuses to write them, so an
+    /// unreadable value (missing area, add-on not broadcasting, offset out of bounds) is reported
+    /// as null - the same way the UDP and WebSocket paths drop it. Without this the response
+    /// fails to serialize and the request ends as an empty HTTP 500.
+    /// </summary>
+    private static double? JsonNumber(double value)
+    {
+        return double.IsNaN(value) || double.IsInfinity(value) ? null : value;
     }
 }
