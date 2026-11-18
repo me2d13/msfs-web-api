@@ -14,6 +14,14 @@ WebSocket and UDP. `README.md` documents the API and the client data area suppor
   presets), `tools/pmdg-fields.html` (PMDG SDK field browser), `tools/ws-test.html` (WebSocket).
 - `MsfsApiServer/www/test.html` is served by the server itself at `/test.html`; the whole `www`
   directory is copied next to the exe on build, which is where the exe reads it from.
+- `build.ps1` (in the workspace root, outside this repository) also packages the release:
+  `dist\MsfsApiServer.zip` every time, plus `dist\MsfsApiServer-selfcontained.zip` (the .NET runtime
+  inside it) with `-SelfContained`. Both zips have one root folder `MsfsApiServer\` and `/`
+  separators. It refuses to run while `MsfsApiServer.exe` is up, because that locks the DLLs.
+- `packaging\README.txt` is the file that ships inside those zips as `README.txt`. It is written for
+  whoever downloads the zip, not for us: requirements (both .NET 8 runtimes, or none for the
+  self-contained build), how to run it, the config file, and where the `www` pages go. Keep it in
+  sync whenever a change alters what a downloader has to know.
 
 ## Verify behaviour, not just the diff
 
