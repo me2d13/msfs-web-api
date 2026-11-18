@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- SimConnector's assembly reference is not passed on to referencing projects, and the tests
+       assert against the SIMCONNECT_CLIENTDATATYPE_* constants. Same path as SimConnector.csproj. -->
+  <ItemGroup>
+    <Reference Include="Microsoft.FlightSimulator.SimConnect">
+      <HintPath>E:\MSFS SDK\SimConnect SDK\lib\managed\Microsoft.FlightSimulator.SimConnect.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- The managed wrapper is a mixed-mode assembly, so the native SimConnect.dll has to sit next
+       to it (MsfsApiServer's PostBuild step does the same for the server output). -->
+  <ItemGroup>
+    <None Include="E:\MSFS SDK\SimConnect SDK\lib\SimConnect.dll">
+      <Link>SimConnect.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SimConnector\SimConnector.csproj" />
+  </ItemGroup>
+
+</Project>

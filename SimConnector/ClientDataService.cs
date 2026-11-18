@@ -123,7 +123,7 @@ namespace SimConnector
         /// The wrapper boxes the payload as a 32-bit word, but the boxed type is not guaranteed
         /// (UInt32 seen in practice), so normalise defensively.
         /// </summary>
-        private static uint ToWord(object value)
+        internal static uint ToWord(object value)
         {
             return value switch
             {
@@ -140,7 +140,7 @@ namespace SimConnector
         }
 
         /// <summary>Size in bytes for a SIMCONNECT_CLIENTDATATYPE_* constant.</summary>
-        private static int SizeOf(uint sizeOrType)
+        internal static int SizeOf(uint sizeOrType)
         {
             if (sizeOrType == SimConnect.SIMCONNECT_CLIENTDATATYPE_INT8) return 1;
             if (sizeOrType == SimConnect.SIMCONNECT_CLIENTDATATYPE_INT16) return 2;
@@ -153,7 +153,7 @@ namespace SimConnector
             return (int)sizeOrType;
         }
 
-        private static double DecodeWord(uint word, uint sizeOrType, string typeName)
+        internal static double DecodeWord(uint word, uint sizeOrType, string typeName)
         {
             switch (typeName)
             {
@@ -171,7 +171,7 @@ namespace SimConnector
             return size >= 4 ? word : word & ((1u << (size * 8)) - 1);
         }
 
-        private static double DecodeTwoWords(uint low, uint high, string typeName)
+        internal static double DecodeTwoWords(uint low, uint high, string typeName)
         {
             ulong bits = ((ulong)high << 32) | low;
             return typeName switch
@@ -182,10 +182,20 @@ namespace SimConnector
             };
         }
 
+        /// <summary>
+        /// True when a reference addresses a field that can be read. A malformed CLIENT: name
+        /// carries the placeholder offset -1 / area 0 from the parser, and has to be rejected
+        /// here instead of being sent to SimConnect.
+        /// </summary>
+        internal static bool IsReadable(SimVarReference? reference)
+        {
+            return reference is { IsClientData: true, ClientOffset: >= 0, ClientAreaId: not 0 };
+        }
+
         public async Task<SimVarReference?> GetClientDataValueAsync(SimVarReference reference)
         {
             if (reference == null || !reference.IsClientData) return null;
-            if (reference.ClientOffset < 0 || reference.ClientAreaId == 0)
+            if (!IsReadable(reference))
             {
                 _logger.LogWarning(
                     "Invalid client data reference '{Name}' - expected CLIENT:AREA[:@AREA_ID]:OFFSET[:TYPE]|ALIAS",

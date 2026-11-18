@@ -18,6 +18,19 @@ WebSocket and UDP. `README.md` documents the API and the client data area suppor
 Build after any edit, and exercise the API once (`curl` or a test page). Both bugs found in the
 client data work looked fine in `git show` and only showed up when the code ran.
 
+## Tests
+
+`SimConnector.Tests` (xUnit) covers the reference parsing and the client data decoding:
+
+```
+dotnet test SimConnector.Tests/SimConnector.Tests.csproj -c Release
+```
+
+That path builds only `SimConnector` and the tests, so unlike a full `dotnet build src.sln` it
+works while the server is running. Prefer adding a case there over re-checking by hand: the
+decoding rules (masking, sign extension, float32 bits, two-word assembly of 64-bit fields) and the
+`CLIENT:` grammar are exactly where a wrong byte or a swapped word hides.
+
 ## Line endings - read before committing
 
 `.gitattributes` pins text files to LF in the repository *and* in the working tree

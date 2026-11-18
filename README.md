@@ -449,6 +449,21 @@ nc -ul 49002
 ncat -ul 49002
 ```
 
+## Tests
+
+Reference parsing and client data decoding are covered by unit tests in `SimConnector.Tests`:
+
+```bash
+dotnet test SimConnector.Tests/SimConnector.Tests.csproj -c Release
+```
+
+They cover the SimVar name syntax (`NAME[unit]|alias`), the whole `CLIENT:` grammar (known areas,
+`@AREA_ID`, hex and decimal offsets, the type table, malformed references) and the decoding rules
+(masking and sign extension for narrow types, float32 bit reinterpretation, two-word assembly of
+64-bit fields). The SimConnect SDK has to be installed, because the tests assert against the
+`SIMCONNECT_CLIENTDATATYPE_*` values; the native `SimConnect.dll` is copied next to the test
+assembly automatically.
+
 ## System Requirements
 
 - .NET 8.0 or later
