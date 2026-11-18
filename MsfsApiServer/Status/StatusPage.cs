@@ -40,8 +40,9 @@ namespace MsfsApiServer.Status
   header nav { margin-top: 0.3em; font-size: 0.9em; }
   .stream { margin: 0 0 1em 0; }
   .chips code { display: inline-block; background: #8882; border-radius: 3px; padding: 0 0.35em; margin: 0.1em 0.25em 0.1em 0; }
-  ul.files { list-style: none; padding-left: 0; }
-  ul.files li { margin: 0.2em 0; }
+  ul.files { list-style: none; padding-left: 0; margin: 0.2em 0; }
+  ul.files li { display: inline-block; margin: 0.1em 1.4em 0.1em 0; }
+  ul.files a { font-weight: 600; }
   input[type=text] { padding: 0.15em 0.4em; }
   footer { margin-top: 2em; font-size: 0.85em; }
 </style>
@@ -59,6 +60,13 @@ namespace MsfsApiServer.Status
 </header>
 
 <div id="error" class="error" hidden></div>
+
+<section>
+  <h2>Local files</h2>
+  <ul class="files" id="files"></ul>
+  <p class="muted">Place html files into <code>__WWW_DIR__</code> to appear in this section; other
+  files there (css, js, images, fonts) are served as well, subdirectories included.</p>
+</section>
 
 <section>
   <h2>Server</h2>
@@ -97,12 +105,6 @@ namespace MsfsApiServer.Status
     </thead>
     <tbody></tbody>
   </table>
-</section>
-
-<section>
-  <h2>Local files</h2>
-  <p class="muted">Place html files into <code>__WWW_DIR__</code> to appear in this section.</p>
-  <ul class="files" id="files"></ul>
 </section>
 
 <footer class="muted">
@@ -241,7 +243,7 @@ function render(data) {
 
   const www = data.www || {};
   el('files').innerHTML = (www.files || []).length
-    ? www.files.map(f => '<li>' + link(f.url, f.title) + ' <span class="muted">' + esc(f.name) + ' &middot; ' + bytes(f.sizeBytes) + ' &middot; changed ' + age(f.modifiedUtc) + '</span></li>').join('')
+    ? www.files.map(f => '<li><a href="' + esc(f.url) + '" title="' + esc(f.name + ' - ' + bytes(f.sizeBytes) + ', changed ' + new Date(f.modifiedUtc).toLocaleString()) + '">' + esc(f.title) + '</a></li>').join('')
     : '<li class="muted">no html files in ' + esc(www.dir || 'www') + ' yet</li>';
 }
 

@@ -50,7 +50,9 @@ public static class WebApiHost
 
         app.MapGet("/api/status", (SimConnectClient simClient) =>
         {
-            simClient.RefreshConnection();
+            // Reports the state the connection monitor maintains. It deliberately does not call
+            // RefreshConnection(): that drops the SimConnect connection, which would clear the
+            // client data subscriptions on every poll. The monitor reconnects within 5 seconds.
             string connectionStatus = simClient.IsConnected ? "CONNECTED" : "DISCONNECTED";
             return $"API Server Running. MSFS Connection Status: {connectionStatus}";
         });
@@ -305,13 +307,14 @@ public static class WebApiHost
         app.MapGet("/", (ServerStatus status) => Results.Content(StatusPage.Html(status.WwwDir), "text/html"));
         app.MapGet("/status", (ServerStatus status) => Results.Content(StatusPage.Html(status.WwwDir), "text/html"));
 
-        // Pages the user drops into the "www" directory next to the exe, e.g. /views.html.
-        app.MapGet("/{file}", (string file, ServerStatus status, HttpContext context) =>
+        // Pages and assets from the "www" directory next to the exe: /views.html, /img/plane.jpg.
+        // A catch-all, so every literal route above keeps precedence over it.
+        app.MapGet("/{**path}", (string? path, ServerStatus status, HttpContext context) =>
         {
-            var path = WwwFiles.Resolve(status.WwwDir, file);
-            if (path == null) return Results.NotFound($"Not found: /{file}");
+            var file = WwwFiles.Resolve(status.WwwDir, path);
+            if (file == null) return Results.NotFound($"Not found: /{path}");
             context.Response.Headers.CacheControl = "no-cache";
-            return Results.File(path, WwwFiles.ContentTypeFor(path));
+            return Results.File(file, WwwFiles.ContentTypeFor(file));
         });
 
         // The tray icon doubles as the page icon.

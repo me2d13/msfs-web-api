@@ -57,12 +57,14 @@ fed by `SimVarService`, so every caller is counted.
 
 Two traps:
 
-- `/api/stats` must not call `SimConnectClient.RefreshConnection()`. That helper disconnects and
-  reconnects, and the disconnect handler in `ClientDataService` clears the mapped areas,
-  definitions and subscriptions - a page that polls every 2 s would wipe the client data state on
-  every poll. `/api/status` does call it; leave that one alone or fix it deliberately.
-- `/` and `/status` are the built-in page, and `GET /{file}` serves the `www` files; literal routes
-  win over the parameter route, so a `www/status` file would never be reached.
+- Never call `SimConnectClient.RefreshConnection()` from a polled endpoint. That helper disconnects
+  and reconnects, and the disconnect handler in `ClientDataService` clears the mapped areas,
+  definitions and subscriptions, so a page polling every 2 s would wipe the client data state on
+  every poll. Both `/api/status` and `/api/stats` read `IsConnected` instead; the connection
+  monitor reconnects within 5 s on its own.
+- `/` and `/status` are the built-in page, and `GET /{**path}` serves the `www` files (subdirectories
+  included). Literal routes win over the catch-all, so a `www/status` file would never be reached;
+  `WwwFiles.Resolve` refuses anything outside `www` or of an unknown type.
 
 ## Client data areas
 

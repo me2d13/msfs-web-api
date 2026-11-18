@@ -214,7 +214,8 @@ Implementation notes, verified against MSFS 2024 and the PMDG 737:
 
 ## API Endpoints
 
-- `GET /api/status` - Check API server and MSFS connection status
+- `GET /api/status` - Check API server and MSFS connection status (reports the state the
+  connection monitor keeps; the monitor reconnects within 5 s if the link is lost)
 - `GET /` (or `/status`) - Built-in status page, see [Status Page](#status-page)
 - `GET /api/stats` - Everything the status page shows, as JSON
 - `GET /{file}` - A page from the `www` directory next to the exe, e.g. `/views.html`
@@ -377,19 +378,26 @@ It reports:
   is identified by its name plus unit (`AIRSPEED INDICATED[knots]`); a client data field by
   `CLIENT:AREA:OFFSET:TYPE` with the canonical type name, so `:bool` and `:byte` on one offset
   share a row (they are the same field).
-- **Local files** - the html pages in the `www` directory next to the exe.
+- **Local files** - at the top of the page, one link per html file in the `www` directory next to
+  the exe (details in the tooltip).
 
 ### Your own pages
 
 Put html files into the `www` directory next to `MsfsApiServer.exe` (it is created at startup, and
 `www/test.html` from the repository is copied there on build). Each page shows up on the status
 page as a link named after the file without its extension - `views.html` becomes **views** - and is
-served at `/{file}`, so `views.html` is at `http://localhost:5018/views.html`.
+served at its own path, so `views.html` is at `http://localhost:5018/views.html`.
 
-Only the top level of `www` is served, and only file types a page can need (`.html`, `.htm`, `.css`,
-`.js`, `.json`, `.txt`, images, fonts). `/` and `/status` stay with the built-in status page, so a
-`www/index.html` would never be reached; `/api/...` and `/swagger` keep their routes. Pages are
-served with `Cache-Control: no-cache`, so a reload picks up your edits.
+Subdirectories work too, so a page can pull in its own assets - `<img src="/img/plane.jpg">`,
+`<link rel="stylesheet" href="/css/panel.css">` - and only file types a page can need are served
+(html, css, js, json, txt, csv, xml, wasm, images, fonts, audio, video, pdf; the table is
+`WwwFiles.ContentTypes`). Everything else, and anything outside `www`, is a 404. `/` and `/status`
+stay with the built-in status page, so a `www/index.html` would never be reached; `/api/...` and
+`/swagger` keep their routes. Pages and assets are served with `Cache-Control: no-cache`, so a
+reload picks up your edits.
+
+Only the html files in the top level of `www` are listed on the status page; pages in a
+subdirectory are reachable by URL but not listed.
 
 Because the pages are served by the API itself, `fetch(location.origin + '/api/simvar/get', ...)`
 works from any machine, and no CORS setup is needed. `www/test.html` is a small example: a read
