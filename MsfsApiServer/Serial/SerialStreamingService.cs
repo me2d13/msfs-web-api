@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MsfsApiServer.Configuration;
+using MsfsApiServer.Status;
 using SimConnector;
 using System.IO.Ports;
 using System.Text;
@@ -28,6 +29,26 @@ namespace MsfsApiServer.Serial
         private const int RECONNECT_INTERVAL_SECONDS = 5;
         private int _consecutiveFailures = 0;
         private const int MAX_FAILURES_BEFORE_RECONNECT = 3;
+
+        // Counters for the status page
+        private long _linesSent;
+        private DateTime? _lastSentUtc;
+        private string? _lastError;
+
+        /// <summary>Current state of this stream, for the status page.</summary>
+        public StreamInfo GetStatus() => new()
+        {
+            Type = "Serial",
+            Target = $"{_config.ComPort} at {_config.BaudRate} baud",
+            IntervalMs = _config.Interval ?? 1000,
+            VariableCount = _simVars.Count,
+            Variables = _simVars.Select(v => v.GetOutputName()).ToList(),
+            Connected = _isConnected,
+            Sent = Interlocked.Read(ref _linesSent),
+            LastSentUtc = _lastSentUtc,
+            ConsecutiveFailures = _consecutiveFailures,
+            LastError = _lastError,
+        };
 
         public SerialStreamingService(
             SimVarService simVarService,
@@ -173,6 +194,9 @@ namespace MsfsApiServer.Serial
                 {
                     _serialPort.WriteLine(json);
                     _consecutiveFailures = 0; // Reset failure counter on success
+                    Interlocked.Increment(ref _linesSent);
+                    _lastSentUtc = DateTime.UtcNow;
+                    _lastError = null;
                 }
             }
             catch (TimeoutException ex)
@@ -193,6 +217,7 @@ namespace MsfsApiServer.Serial
         private void HandleSendFailure(Exception ex, string messageTemplate)
         {
             _consecutiveFailures++;
+            _lastError = ex.Message;
             _logger.LogWarning(ex, messageTemplate + " (attempt {Count}/{Max})",
                 _config.ComPort, _consecutiveFailures, MAX_FAILURES_BEFORE_RECONNECT);
 

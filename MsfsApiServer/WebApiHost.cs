@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MsfsApiServer.Status;
 using SimConnector;
 using System.Net;
 using System.Net.WebSockets;
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text;
 
 public static class WebApiHost
@@ -50,6 +53,16 @@ public static class WebApiHost
             simClient.RefreshConnection();
             string connectionStatus = simClient.IsConnected ? "CONNECTED" : "DISCONNECTED";
             return $"API Server Running. MSFS Connection Status: {connectionStatus}";
+        });
+
+        // Everything the status page shows, as JSON.
+        // Note: no RefreshConnection() here. That helper drops and recreates the SimConnect
+        // connection, which would clear the client data subscriptions on every poll of a page
+        // that refreshes every couple of seconds; the connection monitor keeps IsConnected honest.
+        app.MapGet("/api/stats", (ServerStatus status, SimVarService simVarService, SimConnectClient simClient) =>
+        {
+            var snapshot = status.BuildSnapshot(simVarService, simClient);
+            return Results.Text(JsonSerializer.Serialize(snapshot, StatsJsonOptions), "application/json");
         });
         
         app.MapPost("/api/simvar/get", async (SimVarService simVarService, SimVarReference reference) =>
@@ -288,6 +301,26 @@ public static class WebApiHost
             wsLogger.LogInformation("WS /api/simvar/register closed for {RemoteIp}", context.Connection.RemoteIpAddress);
         });
 
+        // Built-in status page, also reachable as /status.
+        app.MapGet("/", (ServerStatus status) => Results.Content(StatusPage.Html(status.WwwDir), "text/html"));
+        app.MapGet("/status", (ServerStatus status) => Results.Content(StatusPage.Html(status.WwwDir), "text/html"));
+
+        // Pages the user drops into the "www" directory next to the exe, e.g. /views.html.
+        app.MapGet("/{file}", (string file, ServerStatus status, HttpContext context) =>
+        {
+            var path = WwwFiles.Resolve(status.WwwDir, file);
+            if (path == null) return Results.NotFound($"Not found: /{file}");
+            context.Response.Headers.CacheControl = "no-cache";
+            return Results.File(path, WwwFiles.ContentTypeFor(path));
+        });
+
+        // The tray icon doubles as the page icon.
+        app.MapGet("/favicon.ico", () =>
+        {
+            var icon = IconBytes();
+            return icon.Length == 0 ? Results.NotFound() : Results.Bytes(icon, "image/x-icon");
+        });
+
         app.UseAuthorization();
         app.MapControllers();
         // Start the web server (non-blocking)
@@ -352,5 +385,38 @@ public static class WebApiHost
     private static double? JsonNumber(double value)
     {
         return double.IsNaN(value) || double.IsInfinity(value) ? null : value;
+    }
+
+    private static readonly JsonSerializerOptions StatsJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private static byte[]? _iconBytes;
+
+    /// <summary>The tray icon, served as the page icon; empty when the resource is missing.</summary>
+    private static byte[] IconBytes()
+    {
+        if (_iconBytes != null) return _iconBytes;
+
+        try
+        {
+            using var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("MsfsApiServer.Resources.plane32.ico");
+            if (stream != null)
+            {
+                using var memory = new MemoryStream();
+                stream.CopyTo(memory);
+                _iconBytes = memory.ToArray();
+            }
+        }
+        catch
+        {
+            // No icon is a cosmetic problem only.
+        }
+
+        return _iconBytes ??= Array.Empty<byte>();
     }
 }

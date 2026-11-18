@@ -192,6 +192,15 @@ namespace SimConnector
             return reference is { IsClientData: true, ClientOffset: >= 0, ClientAreaId: not 0 };
         }
 
+        /// <summary>
+        /// Client data areas mapped on this connection so far, as area name to SimConnect data area ID.
+        /// The status page lists them.
+        /// </summary>
+        public IReadOnlyDictionary<string, int> GetKnownAreas()
+        {
+            return new Dictionary<string, int>(_mappedAreas);
+        }
+
         public async Task<SimVarReference?> GetClientDataValueAsync(SimVarReference reference)
         {
             if (reference == null || !reference.IsClientData) return null;

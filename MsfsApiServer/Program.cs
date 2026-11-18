@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using MsfsApiServer.Logging;
 using MsfsApiServer.Configuration;
+using MsfsApiServer.Status;
 using MsfsApiServer.Udp;
 using MsfsApiServer.Serial;
 using SimConnector;
@@ -59,8 +60,16 @@ class Program
         var port = config.WebApi.Port?.ToString() ?? "5018";
         builder.Configuration["port"] = port;
 
+        // Runtime facts the status page reports; filled in as the pieces come up.
+        var serverStatus = new ServerStatus();
+        serverStatus.Configure(config, configResult.Diagnostics, string.IsNullOrWhiteSpace(logFilePath) ? null : logFilePath);
+        serverStatus.EnsureWwwDirectory();
+        builder.Services.AddSingleton(serverStatus);
+
         // Start the web API host and get port, local IP, and the built app
         var (actualPort, localIp, app) = WebApiHost.StartAndReturnApp(builder);
+        serverStatus.Port = actualPort;
+        serverStatus.LocalIp = localIp;
 
         // Now that logging is initialized, log the configuration diagnostics
         var logger = app.Services.GetRequiredService<ILogger<Program>>();
@@ -102,6 +111,10 @@ class Program
                 // Continue without Serial streaming if it fails
             }
         }
+
+        // Let the status page report on both streams
+        serverStatus.Udp = udpService;
+        serverStatus.Serial = serialService;
 
         // Hook up SimConnect events to TrayIconManager
         var simConnectClient = app.Services.GetRequiredService<SimConnectClient>();

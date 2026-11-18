@@ -34,11 +34,15 @@ public static class TrayIconManager
             
             UpdateTooltip(false); // Default to not connected
 
+            var statusPageUrl = $"http://localhost:{port}/";
+
             var contextMenu = new ContextMenuStrip();
+            var statusPageItem = new ToolStripMenuItem("Open status page") { Font = new Font(contextMenu.Font, FontStyle.Bold) };
             var showApiDocItem = new ToolStripMenuItem("Show API doc");
             var copyUrlItem = new ToolStripMenuItem("Copy network URL");
             var openGithubItem = new ToolStripMenuItem("Open Github page");
             var quitItem = new ToolStripMenuItem("Quit");
+            contextMenu.Items.Add(statusPageItem);
             contextMenu.Items.Add(showApiDocItem);
             contextMenu.Items.Add(copyUrlItem);
             contextMenu.Items.Add(openGithubItem);
@@ -46,29 +50,16 @@ public static class TrayIconManager
             contextMenu.Items.Add(quitItem);
             _trayIcon.ContextMenuStrip = contextMenu;
             _trayIcon.Visible = true;
-            showApiDocItem.Click += (s, e) =>
-            {
-                var swaggerUrl = $"http://localhost:{port}/swagger";
-                Process.Start(new ProcessStartInfo(swaggerUrl) { UseShellExecute = true });
-            };
+            statusPageItem.Click += (s, e) => OpenUrl(statusPageUrl, "status page");
+            _trayIcon.DoubleClick += (s, e) => OpenUrl(statusPageUrl, "status page");
+            showApiDocItem.Click += (s, e) => OpenUrl($"http://localhost:{port}/swagger", "API doc");
             copyUrlItem.Click += (s, e) =>
             {
                 var networkUrl = $"http://{localIp}:{port}";
                 try { Clipboard.SetText(networkUrl); }
                 catch (Exception ex) { MessageBox.Show($"Error copying to clipboard: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
             };
-            openGithubItem.Click += (s, e) =>
-            {
-                var githubUrl = "https://github.com/me2d13/msfs-web-api";
-                try
-                {
-                    Process.Start(new ProcessStartInfo(githubUrl) { UseShellExecute = true });
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error opening Github page: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
+            openGithubItem.Click += (s, e) => OpenUrl("https://github.com/me2d13/msfs-web-api", "Github page");
             quitItem.Click += (s, e) =>
             {
                 _trayIcon.Visible = false;
@@ -85,6 +76,19 @@ public static class TrayIconManager
         trayThread.IsBackground = true;
         trayThread.SetApartmentState(ApartmentState.STA);
         trayThread.Start();
+    }
+
+    /// <summary>Opens a URL in the default browser, reporting failures in a message box.</summary>
+    private static void OpenUrl(string url, string what)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error opening {what}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     public static void SetSimConnectStatus(bool isConnected)

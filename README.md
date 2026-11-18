@@ -8,6 +8,8 @@ A lightweight web API server that connects to Microsoft Flight Simulator (MSFS) 
 - REST endpoint for SimConnect event sending (simulator commands)
 - WebSocket streaming of SimVar updates (same request body as getMultiple)
 - Variable UDP output - simulation variables can be streamed via UDP (e.g. for home cockpit hw)
+- Built-in status page (also from the tray icon) with connection state, lookup counters and the
+  running configuration; your own html pages dropped into `www` next to the exe are served and listed there
 - System tray application with easy access to API documentation
 - Swagger UI for API exploration and testing
 - YAML configuration file support with command-line override
@@ -213,6 +215,9 @@ Implementation notes, verified against MSFS 2024 and the PMDG 737:
 ## API Endpoints
 
 - `GET /api/status` - Check API server and MSFS connection status
+- `GET /` (or `/status`) - Built-in status page, see [Status Page](#status-page)
+- `GET /api/stats` - Everything the status page shows, as JSON
+- `GET /{file}` - A page from the `www` directory next to the exe, e.g. `/views.html`
 - `POST /api/simvar/get` - Get a single SimVar value
 - `POST /api/simvar/set` - Set a single SimVar value
 - `POST /api/simvar/getMultiple` - Get multiple SimVar values (parallel execution)
@@ -351,6 +356,45 @@ curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' \
   ]'
 ```
 
+## Status Page
+
+`http://localhost:{port}/` (also `/status`) shows what the server is doing right now; the tray menu
+opens it with **Open status page**, and a double click on the tray icon does the same. The page
+re-reads `/api/stats` every two seconds, so it can be left open while you work.
+
+It reports:
+
+- **Server** - exe name and path, port, local and network URL, log file (with its size), pid,
+  runtime, start time and uptime.
+- **Configuration** - the config file it was loaded from (or that it was not found), command-line
+  overrides, log level, and whether UDP/serial streaming is enabled in the config.
+- **Streaming** - for each stream: target, interval, the variables with their aliases, whether it is
+  sending, how many packets/lines went out, when the last one left, and the last error.
+- **SimConnect** - connection state and the client data areas seen so far (name and data area ID).
+- **Variables** - every variable that was looked up, with reads, writes, requests that came back
+  without a value, the last value and when it was last updated. The counters are kept in
+  `SimVarService`, so HTTP, WebSocket, UDP and serial lookups all land in the same table. A variable
+  is identified by its name plus unit (`AIRSPEED INDICATED[knots]`); a client data field by
+  `CLIENT:AREA:OFFSET:TYPE` with the canonical type name, so `:bool` and `:byte` on one offset
+  share a row (they are the same field).
+- **Local files** - the html pages in the `www` directory next to the exe.
+
+### Your own pages
+
+Put html files into the `www` directory next to `MsfsApiServer.exe` (it is created at startup, and
+`www/test.html` from the repository is copied there on build). Each page shows up on the status
+page as a link named after the file without its extension - `views.html` becomes **views** - and is
+served at `/{file}`, so `views.html` is at `http://localhost:5018/views.html`.
+
+Only the top level of `www` is served, and only file types a page can need (`.html`, `.htm`, `.css`,
+`.js`, `.json`, `.txt`, images, fonts). `/` and `/status` stay with the built-in status page, so a
+`www/index.html` would never be reached; `/api/...` and `/swagger` keep their routes. Pages are
+served with `Cache-Control: no-cache`, so a reload picks up your edits.
+
+Because the pages are served by the API itself, `fetch(location.origin + '/api/simvar/get', ...)`
+works from any machine, and no CORS setup is needed. `www/test.html` is a small example: a read
+(with optional polling), a write, and a multiple read.
+
 ## WebSocket Streaming: `/api/simvar/register`
 
 Stream live updates for one or more SimVars over WebSocket.
@@ -464,11 +508,12 @@ dotnet test SimConnector.Tests/SimConnector.Tests.csproj -c Release
 ```
 
 They cover the SimVar name syntax (`NAME[unit]|alias`), the whole `CLIENT:` grammar (known areas,
-`@AREA_ID`, hex and decimal offsets, the type table, malformed references) and the decoding rules
+`@AREA_ID`, hex and decimal offsets, the type table, malformed references), the decoding rules
 (masking and sign extension for narrow types, float32 bit reinterpretation, two-word assembly of
-64-bit fields). The SimConnect SDK has to be installed, because the tests assert against the
-`SIMCONNECT_CLIENTDATATYPE_*` values; the native `SimConnect.dll` is copied next to the test
-assembly automatically.
+64-bit fields) and the lookup counters behind the status page (per variable and per client data
+field, reads that returned no value, ordering). The SimConnect SDK has to be installed, because the
+tests assert against the `SIMCONNECT_CLIENTDATATYPE_*` values; the native `SimConnect.dll` is
+copied next to the test assembly automatically.
 
 ## System Requirements
 

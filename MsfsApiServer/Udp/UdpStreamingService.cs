@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MsfsApiServer.Configuration;
+using MsfsApiServer.Status;
 using SimConnector;
 using System.Net;
 using System.Net.Sockets;
@@ -30,6 +31,26 @@ namespace MsfsApiServer.Udp
         private const int RECONNECT_INTERVAL_SECONDS = 5;
         private int _consecutiveFailures = 0;
         private const int MAX_FAILURES_BEFORE_RECONNECT = 3;
+
+        // Counters for the status page
+        private long _packetsSent;
+        private DateTime? _lastSentUtc;
+        private string? _lastError;
+
+        /// <summary>Current state of this stream, for the status page.</summary>
+        public StreamInfo GetStatus() => new()
+        {
+            Type = "UDP",
+            Target = $"{_config.TargetHost}:{_config.TargetPort}",
+            IntervalMs = _config.Interval ?? 1000,
+            VariableCount = _simVars.Count,
+            Variables = _simVars.Select(v => v.GetOutputName()).ToList(),
+            Connected = _isConnected,
+            Sent = Interlocked.Read(ref _packetsSent),
+            LastSentUtc = _lastSentUtc,
+            ConsecutiveFailures = _consecutiveFailures,
+            LastError = _lastError,
+        };
 
         public UdpStreamingService(
             SimVarService simVarService,
@@ -233,11 +254,15 @@ namespace MsfsApiServer.Udp
                 {
                     await _udpClient.SendAsync(bytes, bytes.Length, _targetEndpoint);
                     _consecutiveFailures = 0; // Reset failure counter on success
+                    Interlocked.Increment(ref _packetsSent);
+                    _lastSentUtc = DateTime.UtcNow;
+                    _lastError = null;
                 }
             }
             catch (SocketException ex)
             {
                 _consecutiveFailures++;
+                _lastError = ex.Message;
                 _logger.LogWarning(ex, "UDP send failed (attempt {Count}/{Max}): {Message}",
                    _consecutiveFailures, MAX_FAILURES_BEFORE_RECONNECT, ex.Message);
 
@@ -259,6 +284,7 @@ namespace MsfsApiServer.Udp
             catch (Exception ex)
             {
                 _consecutiveFailures++;
+                _lastError = ex.Message;
                 _logger.LogWarning(ex, "Error sending UDP update (attempt {Count}/{Max})",
                    _consecutiveFailures, MAX_FAILURES_BEFORE_RECONNECT);
 

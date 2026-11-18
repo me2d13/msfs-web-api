@@ -12,6 +12,7 @@ namespace SimConnector
         private readonly SimConnectClient _connection;
         private readonly ILogger<SimVarService> _logger;
         private readonly ClientDataService _clientDataService;
+        private readonly SimVarStatistics _statistics = new();
         private readonly SimConnectIdManager _idManager = new SimConnectIdManager();
         private int _nextRequestId = 0;
         private readonly ConcurrentDictionary<uint, PendingRequest> _pendingRequests = new();
@@ -69,6 +70,11 @@ namespace SimConnector
         /// </summary>
         public ClientDataService GetClientDataService() => _clientDataService;
 
+        /// <summary>
+        /// Lookup counters, fed by every read and write that goes through this service.
+        /// </summary>
+        public SimVarStatistics GetStatistics() => _statistics;
+
         private void OnRecvSimVar(SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
         {
             uint requestId = data.dwRequestID;
@@ -87,6 +93,16 @@ namespace SimConnector
         }
 
         public async Task<SimVarReference?> GetSimVarValueAsync(SimVarReference reference)
+        {
+            var result = await GetSimVarValueCoreAsync(reference);
+            _statistics.RecordRead(reference, result);
+            return result;
+        }
+
+        /// <summary>
+        /// The lookup itself; <see cref="GetSimVarValueAsync"/> wraps it to count the request.
+        /// </summary>
+        private async Task<SimVarReference?> GetSimVarValueCoreAsync(SimVarReference reference)
         {
             if (reference != null && reference.IsClientData)
             {
@@ -124,6 +140,16 @@ namespace SimConnector
         }
 
         public async Task<SimVarReference?> SetSimVarValueAsync(SimVarReference reference)
+        {
+            var result = await SetSimVarValueCoreAsync(reference);
+            _statistics.RecordWrite(reference, result);
+            return result;
+        }
+
+        /// <summary>
+        /// The write itself; <see cref="SetSimVarValueAsync"/> wraps it to count the request.
+        /// </summary>
+        private async Task<SimVarReference?> SetSimVarValueCoreAsync(SimVarReference reference)
         {
             if (reference != null && reference.IsClientData)
             {

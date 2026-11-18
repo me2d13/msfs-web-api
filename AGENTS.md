@@ -12,6 +12,8 @@ WebSocket and UDP. `README.md` documents the API and the client data area suppor
 - The server listens on <http://localhost:5018> (`/api/status` reports the SimConnect state).
 - Test pages, opened as local files (they call localhost): `tools/get-test.html` (GET with
   presets), `tools/pmdg-fields.html` (PMDG SDK field browser), `tools/ws-test.html` (WebSocket).
+- `MsfsApiServer/www/test.html` is served by the server itself at `/test.html`; the whole `www`
+  directory is copied next to the exe on build, which is where the exe reads it from.
 
 ## Verify behaviour, not just the diff
 
@@ -44,6 +46,23 @@ endings can land the hunks on the wrong lines. We once committed four files with
 lines hoisted above the `namespace`; it did not compile and was only caught by building
 afterwards. After any commit, check `git show HEAD:<file> | cmp - <file>` for the committed
 paths, then build.
+
+## Status page
+
+`MsfsApiServer/Status/` holds it: `ServerStatus` (runtime facts, filled in by `Program`, read by the
+endpoints), `StatusSnapshot` (the `/api/stats` JSON, serialized camelCase), `StatusPage` (the page
+itself - one html template with a script that polls `/api/stats` every 2 s) and `WwwFiles` (the
+rules for the `www` directory). Lookup counters live in `SimConnector/SimVarStatistics.cs` and are
+fed by `SimVarService`, so every caller is counted.
+
+Two traps:
+
+- `/api/stats` must not call `SimConnectClient.RefreshConnection()`. That helper disconnects and
+  reconnects, and the disconnect handler in `ClientDataService` clears the mapped areas,
+  definitions and subscriptions - a page that polls every 2 s would wipe the client data state on
+  every poll. `/api/status` does call it; leave that one alone or fix it deliberately.
+- `/` and `/status` are the built-in page, and `GET /{file}` serves the `www` files; literal routes
+  win over the parameter route, so a `www/status` file would never be reached.
 
 ## Client data areas
 
