@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PMDG 737 views</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --fg: #e8f5bc;
+    --btn: rgba(200, 200, 200, 0.45);
+    --edge: #aaa;
+    --active: #3f7d3f;
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Roboto", system-ui, sans-serif; font-size: 16px; }
+  .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+  .head h1 { font-size: 1.05rem; margin: 0; }
+  .head a { color: var(--fg); text-decoration: none; font-size: 0.85rem; opacity: 0.7; }
+  .head a:hover { opacity: 1; }
+  #read { margin-left: auto; font-size: 0.9rem; color: #b9c48a; }
+
+  .page-btn {
+    background: rgba(173, 247, 98, 0.995); border: 2px solid var(--edge); border-radius: 12px;
+    color: #242423; font-weight: 600; font-size: 14px; padding: 6px 14px; min-height: 36px; cursor: pointer;
+  }
+
+  /* the picture is scaled to the screen, button positions are percentages of it */
+  .canvas { position: relative; margin: 8px auto; }
+  #inCanvas { width: min(800px, 96vw, calc((100vh - 90px) * 1.067)); }
+  #outCanvas { width: min(600px, 90vw, calc(100vh - 90px)); }
+  .canvas img { display: block; width: 100%; }
+
+  .view-btn {
+    position: absolute; z-index: 10;
+    background: var(--btn); border: 2px solid var(--edge); border-radius: 14px;
+    color: var(--fg); font-weight: 600; font-size: 15px; padding: 8px 14px; min-height: 44px;
+    cursor: pointer; transition: background 200ms, transform 200ms;
+  }
+  .view-btn:hover { background: #fff; color: #1a1a1a; }
+  .view-btn.active { background: var(--active); color: #fff; border-color: #2f5f2f; }
+
+  @media (max-width: 900px) {
+    .view-btn { font-size: 13px; padding: 6px 10px; min-height: 38px; }
+  }
+
+  #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+         background: #ff6b6b; color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 14px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>PMDG 737 views</h1>
+    <button id="btnIn" class="page-btn">IN</button>
+    <button id="btnOut" class="page-btn">OUT</button>
+    <a href="/">status</a>
+    <span id="read">view not read</span>
+  </div>
+
+  <div id="inFrame">
+    <div class="canvas" id="inCanvas">
+      <img src="/img/cockpit-m.jpg" alt="737 cockpit">
+    </div>
+  </div>
+
+  <div id="outFrame" hidden>
+    <div class="canvas" id="outCanvas">
+      <img src="/img/plane-4002.svg" alt="aircraft">
+    </div>
+  </div>
+
+  <div id="msg" hidden></div>
+
+<script>
+// Views for the PMDG 737 in MSFS. A click writes CAMERA STATE, then the view
+// type and index, in that order (setMultiple runs the list in sequence).
+//   state 2 = cockpit, 3 = external
+//   cockpit: type 1 = pilot seat, type 2 = instrument views
+//   external: type 4 = quickview, type 0 = the plain external camera
+// Only Back (3:4:3) and Gear (3:4:6) are guesses from the quickview cycle
+// (0 left, 1 front, 2 right, 3 behind, 4 fly-by); the rest are the indexes that
+// worked on this aircraft in the fs-web-panels switcher. If a button lands on the
+// wrong panel, change its triple here.
+const VIEWS = [
+  // name, CAMERA STATE, view type, view index, panel, position on the picture
+  { name: 'Pilot',          state: 2, type: 1, index: 1, reset: true, panel: 'in',  pos: 'top:29%;left:42%;transform:translateX(-50%)' },
+  { name: 'Copilot',        state: 2, type: 1, index: 4, reset: true, panel: 'in',  pos: 'top:29%;left:58%;transform:translateX(-50%)' },
+  { name: 'MCP',            state: 2, type: 2, index: 0, panel: 'in',  pos: 'top:43%;left:50%;transform:translateX(-50%)' },
+  { name: 'FMC',            state: 2, type: 2, index: 2, panel: 'in',  pos: 'top:56%;left:50%;transform:translateX(-50%)' },
+  { name: 'Pedestal',       state: 2, type: 2, index: 3, panel: 'in',  pos: 'bottom:3%;left:50%;transform:translateX(-50%)' },
+  { name: 'TQ',             state: 2, type: 2, index: 4, panel: 'in',  pos: 'bottom:17%;left:50%;transform:translateX(-50%)' },
+  { name: 'Overhead',       state: 2, type: 2, index: 5, panel: 'in',  pos: 'top:13%;left:50%;transform:translateX(-50%)' },
+  { name: 'After overhead', state: 2, type: 2, index: 6, panel: 'in',  pos: 'top:0;left:50%;transform:translateX(-50%)' },
+  { name: 'Tablet',         state: 2, type: 2, index: 8, panel: 'in',  pos: 'top:47%;left:2%' },
+  // quick outer views, kept on the cockpit page so the tablet does not have to
+  // switch to the OUT page to look at the aircraft
+  { name: 'Fly by',         state: 3, type: 4, index: 4, panel: 'in',  pos: 'bottom:1%;left:1%' },
+  { name: 'Chase',          state: 3, type: 0, index: 0, panel: 'in',  pos: 'bottom:1%;right:1%' },
+
+  { name: 'Front',          state: 3, type: 4, index: 1, panel: 'out', pos: 'top:-2%;left:50%;transform:translateX(-50%)' },
+  { name: 'From left',      state: 3, type: 4, index: 0, panel: 'out', pos: 'top:31%;left:5%' },
+  { name: 'From right',     state: 3, type: 4, index: 2, panel: 'out', pos: 'top:31%;right:7%' },
+  { name: 'Back',           state: 3, type: 4, index: 3, panel: 'out', pos: 'bottom:0;left:50%;transform:translateX(-50%)' },
+  { name: 'Gear',           state: 3, type: 4, index: 6, panel: 'out', pos: 'bottom:28%;left:55%;transform:translateX(-50%)' },
+  { name: 'Fly by',         state: 3, type: 4, index: 4, panel: 'out', pos: 'top:0;left:20%;transform:translateX(-50%)' },
+  { name: 'Chase',          state: 3, type: 0, index: 0, panel: 'out', pos: 'top:0;right:4%' }
+];
+
+const READ_VARS = [
+  { simVarName: 'CAMERA STATE|CS' },
+  { simVarName: 'CAMERA VIEW TYPE AND INDEX:0|VT' },
+  { simVarName: 'CAMERA VIEW TYPE AND INDEX:1|VI' }
+];
+
+const buttons = [];
+const readEl = document.getElementById('read');
+const msgEl = document.getElementById('msg');
+
+function post(path, body) {
+  return fetch(location.origin + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+  });
+}
+
+function showError(text) {
+  msgEl.textContent = text;
+  msgEl.hidden = false;
+  setTimeout(function () { msgEl.hidden = true; }, 4000);
+}
+
+function num(value) {
+  return value === null || value === undefined || isNaN(value) ? null : Math.round(value);
+}
+
+function describe(view) {
+  return view.state + ':' + view.type + ':' + view.index;
+}
+
+// the same view can sit on both panels (Fly by, Chase), so every button whose
+// state:type:index matches gets the highlight
+function markActive(view) {
+  buttons.forEach(function (entry) {
+    const same = entry.view.state === view.state && entry.view.type === view.type && entry.view.index === view.index;
+    if (same) entry.el.classList.add('active');
+    else entry.el.classList.remove('active');
+  });
+}
+
+// One delayed read after a switch, retried a few times; no polling loop.
+function readView(attempt) {
+  setTimeout(function () {
+    post('/api/simvar/getMultiple', READ_VARS).then(function (data) {
+      const state = num(data.CS), type = num(data.VT), index = num(data.VI);
+      if (state === null) {
+        if (attempt < 2) { readView(attempt + 1); return; }
+        readEl.textContent = 'sim does not report the camera view';
+        return;
+      }
+      readEl.textContent = 'current view ' + state + ':' + type + ':' + index;
+      const match = VIEWS.find(function (v) { return v.state === state && v.type === type && v.index === index; });
+      if (match) markActive(match);
+    }).catch(function (error) {
+      readEl.textContent = 'view not read: ' + error.message;
+    });
+  }, 700 + attempt * 700);
+}
+
+function switchView(view) {
+  const items = [
+    { simVarName: 'CAMERA STATE', value: view.state },
+    { simVarName: 'CAMERA VIEW TYPE AND INDEX:0', value: view.type },
+    { simVarName: 'CAMERA VIEW TYPE AND INDEX:1', value: view.index }
+  ];
+  if (view.reset) items.push({ simVarName: 'CAMERA REQUEST ACTION', value: 1 });
+
+  post('/api/simvar/setMultiple', items).then(function () {
+    readEl.textContent = 'sent ' + describe(view);
+    markActive(view);
+    readView(0);
+  }).catch(function (error) {
+    showError('view switch failed: ' + error.message);
+  });
+}
+
+function addButtons(containerId, panel) {
+  const container = document.getElementById(containerId);
+  VIEWS.filter(function (view) { return view.panel === panel; }).forEach(function (view) {
+    const button = document.createElement('button');
+    button.className = 'view-btn';
+    button.setAttribute('style', view.pos);
+    button.textContent = view.name;
+    button.title = describe(view) + (view.reset ? ' + reset' : '');
+    button.addEventListener('click', function () { switchView(view); });
+    container.appendChild(button);
+    buttons.push({ el: button, view: view });
+  });
+}
+
+addButtons('inCanvas', 'in');
+addButtons('outCanvas', 'out');
+
+function showPanel(inPanel) {
+  document.getElementById('inFrame').hidden = !inPanel;
+  document.getElementById('outFrame').hidden = inPanel;
+}
+document.getElementById('btnIn').addEventListener('click', function () { showPanel(true); });
+document.getElementById('btnOut').addEventListener('click', function () { showPanel(false); });
+</script>
+</body>
+</html>

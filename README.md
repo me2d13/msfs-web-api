@@ -403,6 +403,21 @@ Because the pages are served by the API itself, `fetch(location.origin + '/api/s
 works from any machine, and no CORS setup is needed. `www/test.html` is a small example: a read
 (with optional polling), a write, and a multiple read.
 
+**Pages that ship with the server**
+
+- `www/test.html` - the example above.
+- `www/737views.html` - a view switcher for the PMDG 737. Buttons sit on a cockpit photo
+  (pilot, copilot, MCP, FMC, pedestal, throttle quadrant, overhead, tablet) and, on the second
+  page, on an aircraft picture for the external quickviews; the two quick outer views are also on
+  the cockpit page so you do not have to leave it. A click sends `CAMERA STATE`,
+  `CAMERA VIEW TYPE AND INDEX:0` and `:1` in one `setMultiple` call, then reads the view back once
+  after a short delay (retried a few times, never polled) and highlights the button that matches.
+  The page is one file plus the two pictures in `www/img`, which is where its `<img src="/img/...">`
+  finds them.
+
+The list of views is the `VIEWS` table at the top of the page - one `state:type:index` triple per
+button. A view that lands somewhere else on your aircraft is a one-line change there.
+
 ## WebSocket Streaming: `/api/simvar/register`
 
 Stream live updates for one or more SimVars over WebSocket.
@@ -541,3 +556,9 @@ Basically for `CAMERA STATE` : `CAMERA VIEW TYPE AND INDEX:0` : `CAMERA VIEW TYP
 - 2:2:2 - cockpit, instrument, instrument 03 (FMS view)
 - 3:0:0 - external, default
 - 3:4:1 - external, quickview, quickview 02 (front)
+
+On the PMDG 737 the instrument views are the ones `www/737views.html` uses: 2:2:0 MCP, 2:2:2 FMC,
+2:2:3 pedestal, 2:2:4 throttle quadrant, 2:2:5 overhead, 2:2:6 after overhead, 2:2:8 tablet. The
+quickviews that were checked are 3:4:0 from the left, 3:4:1 front, 3:4:2 from the right, 3:4:4 fly-by
+and 3:0:0 chase; 3:4:3 (behind) and 3:4:6 (below, for a gear look) are read off the same cycle and
+still need confirming.

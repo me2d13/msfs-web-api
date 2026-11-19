@@ -47,4 +47,6 @@ appears as "views"). css, js, json, images, fonts, audio and video are served as
 subfolders work, so a page can use <img src="/img/plane.jpg"> or <link href="/css/panel.css">.
 
 www/test.html is a small example page: it reads a variable (optionally polling), writes one, and
-reads several at once, including a client data area field.
+reads several at once, including a client data area field. www/737views.html switches the PMDG 737
+views - cockpit positions, instrument views and external quickviews - with one click; its pictures
+are in the www/img folder, so keep that folder next to the page.
