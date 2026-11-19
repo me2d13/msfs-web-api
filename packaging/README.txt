@@ -49,4 +49,6 @@ subfolders work, so a page can use <img src="/img/plane.jpg"> or <link href="/cs
 www/test.html is a small example page: it reads a variable (optionally polling), writes one, and
 reads several at once, including a client data area field. www/737views.html switches the PMDG 737
 views - cockpit positions, instrument views and external quickviews - with one click; its pictures
-are in the www/img folder, so keep that folder next to the page.
+are in the www/img folder, so keep that folder next to the page. www/737nav.html is a radio panel
+(COM1, NAV1, NAV2): type the frequency on the keypad, press ACT/STBY to swap, watch the sim's own
+values come back over the WebSocket.

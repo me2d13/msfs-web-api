@@ -15,7 +15,10 @@ WebSocket and UDP. `README.md` documents the API and the client data area suppor
 - `MsfsApiServer/www/test.html` is served by the server itself at `/test.html`; the whole `www`
   directory is copied next to the exe on build, which is where the exe reads it from.
   `www/737views.html` (PMDG 737 view switcher, pictures in `www/img`) is the file to edit when a
-  view index turns out wrong: the whole set is its `VIEWS` table.
+  view index turns out wrong: the whole set is its `VIEWS` table. `www/737nav.html` (COM/NAV radio
+  panel, ported from the xplapi project) reads `COM/NAV ACTIVE/STANDBY FREQUENCY:n` and changes the
+  radios with key events; if a radio does not respond in a given aircraft, the names are in its
+  `RADIOS` table.
 - `build.ps1` (in the workspace root, outside this repository) also packages the release:
   `dist\MsfsApiServer.zip` every time, plus `dist\MsfsApiServer-selfcontained.zip` (the .NET runtime
   inside it) with `-SelfContained`. Both zips have one root folder `MsfsApiServer\` and `/`

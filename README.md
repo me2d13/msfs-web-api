@@ -414,6 +414,15 @@ works from any machine, and no CORS setup is needed. `www/test.html` is a small 
   after a short delay (retried a few times, never polled) and highlights the button that matches.
   The page is one file plus the two pictures in `www/img`, which is where its `<img src="/img/...">`
   finds them.
+- `www/737nav.html` - a radio panel for the 737: COM1, NAV1 and NAV2 with the act/stby lines, a
+  digit keypad, an ACT/STBY swap button and a zoom control for a small tablet. Frequencies are read
+  from the stream (`/api/simvar/register`, one second) and changed with MSFS radio key events
+  through `/api/event/send`: `COM_STBY_RADIO_SET_HZ`, `COM1_RADIO_SWAP` and the NAV1/NAV2
+  equivalents. The page never writes the COM/NAV simvars - MSFS does not allow it - so the number
+  you typed is confirmed a second later by the stream rather than by the page. Values coming back
+  in MHz, kHz, hertz or a BCD count are all normalised to hertz. The simvar and event names live in
+  the `RADIOS` table at the top of the file; add-ons that keep their own radio state (PMDG, Fenix,
+  iniBuilds) may need different names there.
 
 The list of views is the `VIEWS` table at the top of the page - one `state:type:index` triple per
 button. A view that lands somewhere else on your aircraft is a one-line change there.
