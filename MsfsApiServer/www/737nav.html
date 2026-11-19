@@ -468,6 +468,7 @@
     }
 
     els.swapBtn.disabled = busy || !c.events.swap;
+    els.keypad.classList.toggle('busy', busy);
   }
 
   function clearError() {
@@ -495,7 +496,7 @@
   async function commit(hz) {
     const c = cfg();
     busy = true;
-    els.keypad.classList.add('busy');
+    render();
     try {
       await event(c.events.standby, hz);
       buffer = '';
