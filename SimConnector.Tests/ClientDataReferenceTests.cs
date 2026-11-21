@@ -65,6 +65,21 @@ public class ClientDataReferenceTests
     }
 
     [Theory]
+    // The CDU screens are separate areas from PMDG_NG3_Data, so a page has to name them explicitly:
+    // PMDG_NG3_CDU_0 is the captain's, PMDG_NG3_CDU_1 the first officer's.
+    [InlineData("CLIENT:PMDG_NG3_CDU_0:1008:bool", 0x4E473335, 1008)]
+    [InlineData("CLIENT:PMDG_NG3_CDU_1:0:byte", 0x4E473336, 0)]
+    [InlineData("CLIENT:pmdg_ng3_cdu_0@0x4E473335:0", 0x4E473335, 0)]
+    public void Known_cdu_areas_resolve_by_name(string input, int expectedAreaId, int expectedOffset)
+    {
+        var reference = SimVarParser.ParseClientReference(input);
+
+        Assert.NotNull(reference);
+        Assert.Equal(expectedAreaId, reference!.ClientAreaId);
+        Assert.Equal(expectedOffset, reference.ClientOffset);
+    }
+
+    [Theory]
     [InlineData("CLIENT:UNKNOWN_AREA:16")]     // not in KnownClientDataAreas and no @ID
     [InlineData("CLIENT:MY_AREA@notanumber:16")]
     [InlineData("CLIENT:MY_AREA@:16")]

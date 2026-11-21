@@ -51,4 +51,6 @@ reads several at once, including a client data area field. www/737views.html swi
 views - cockpit positions, instrument views and external quickviews - with one click; its pictures
 are in the www/img folder, so keep that folder next to the page. www/737nav.html is a radio panel
 (COM1, NAV1, NAV2): type the frequency on the keypad, press ACT/STBY to swap, watch the sim's own
-values come back over the WebSocket.
+values come back over the WebSocket. www/cdu.html shows the PMDG 737 CDU screen (captain's or
+first officer's) on a tablet; it needs the PMDG 737 with EnableCDUBroadcast.0=1 / .1=1 in the
+[SDK] section of its options file, and is read-only for now.

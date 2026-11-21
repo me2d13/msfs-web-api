@@ -57,6 +57,18 @@ namespace SimConnector
         /// </summary>
         private const int CacheMaxAgeMs = 2000;
 
+        /// <summary>
+        /// How long one chunk of a raw byte range (see <see cref="GetRawBytesAsync"/>) is trusted.
+        /// Longer than a single field's window on purpose: a screen is read as 250+ chunks, and
+        /// re-reading all of them because nothing was written to the area for a second would cost
+        /// far more than the stale value it fixes. Data that does change still arrives through the
+        /// ON_SET subscription within milliseconds.
+        /// </summary>
+        private const int RawCacheMaxAgeMs = 10000;
+
+        /// <summary>Largest byte range a single read may cover, so one request cannot fan out.</summary>
+        public const int MaxRawRangeLength = 8192;
+
         private readonly struct CacheEntry
         {
             public CacheEntry(uint word, DateTime timestamp) { Word = word; Timestamp = timestamp; }
@@ -183,6 +195,61 @@ namespace SimConnector
         }
 
         /// <summary>
+        /// The chunks SimConnect is asked for when a byte range is read. The managed wrapper
+        /// returns one 32-bit word per definition, so a chunk is four bytes wide, and the last one
+        /// is shorter when the length is not a multiple of four - a definition that reached past
+        /// the end of the area would be rejected with SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS and never
+        /// answered (the PMDG CDU area is 1009 bytes: 1008 of cells plus the Powered bool).
+        /// </summary>
+        internal static (int Offset, int Size)[] ChunkRanges(int offset, int length)
+        {
+            const int chunkSize = 4;
+            var chunks = new List<(int, int)>((length + chunkSize - 1) / chunkSize);
+            int at = offset;
+            int remaining = length;
+            while (remaining > 0)
+            {
+                int size = Math.Min(chunkSize, remaining);
+                chunks.Add((at, size));
+                at += size;
+                remaining -= size;
+            }
+            return chunks.ToArray();
+        }
+
+        /// <summary>
+        /// Little-endian assembly of the words SimConnect returned for a range: the low byte of a
+        /// word is the area byte at that definition's offset (the offset need not be aligned).
+        /// </summary>
+        internal static byte[] WordsToBytes(IReadOnlyList<uint> words, IReadOnlyList<int> sizes)
+        {
+            int total = 0;
+            for (int i = 0; i < sizes.Count; i++) total += sizes[i];
+
+            var bytes = new byte[total];
+            int at = 0;
+            for (int i = 0; i < words.Count; i++)
+            {
+                for (int b = 0; b < sizes[i]; b++)
+                {
+                    bytes[at++] = (byte)(words[i] >> (8 * b));
+                }
+            }
+            return bytes;
+        }
+
+        /// <summary>A reference to a byte range of an area, used for the chunk definitions and keys.</summary>
+        private static SimVarReference AreaReference(string areaName, int areaId, int offset, int size) => new()
+        {
+            SimVarName = areaName,
+            IsClientData = true,
+            ClientAreaId = areaId,
+            ClientOffset = offset,
+            ClientSizeOrType = (uint)size,
+            ClientTypeName = "raw"
+        };
+
+        /// <summary>
         /// True when a reference addresses a field that can be read. A malformed CLIENT: name
         /// carries the placeholder offset -1 / area 0 from the parser, and has to be rejected
         /// here instead of being sent to SimConnect.
@@ -261,11 +328,92 @@ namespace SimConnector
             return reference with { Value = DecodeTwoWords(low, high, reference.ClientTypeName) };
         }
 
-        private bool TryGetCached(string cacheKey, out uint word)
+        /// <summary>
+        /// Reads a byte range of a client data area as raw bytes - the CDU screen of the PMDG 737
+        /// is the use case: one <c>PMDG_NG3_CDU_Screen</c>, 24x14 cells of symbol/color/flags
+        /// followed by a Powered bool, 1009 bytes that no single SimVar or field read can carry.
+        ///
+        /// The range is covered by 4-byte chunks (see <see cref="ChunkRanges"/>), each subscribed
+        /// once exactly like a single field, so a page streaming the screen is served from the
+        /// cache instead of a SimConnect round trip per chunk. Returns null when the area is not
+        /// being broadcast (add-on not loaded, broadcast disabled) or a chunk cannot be read.
+        /// </summary>
+        public async Task<byte[]?> GetRawBytesAsync(string areaName, int areaId, int offset, int length)
+        {
+            if (string.IsNullOrWhiteSpace(areaName) || areaId == 0 || offset < 0 || length <= 0 || length > MaxRawRangeLength)
+            {
+                _logger.LogWarning(
+                    "Invalid client data range request: area '{Area}' id {AreaId} offset {Offset} length {Length}",
+                    areaName, areaId, offset, length);
+                return null;
+            }
+            if (!_connection.IsConnected)
+            {
+                _logger.LogDebug("SimConnect not connected, cannot read client data range.");
+                return null;
+            }
+
+            // One byte of the range as a presence check: an area that is not broadcast then costs a
+            // single request that times out, instead of one per chunk.
+            var probe = await GetClientDataValueAsync(AreaReference(areaName, areaId, offset, 1));
+            if (probe == null || double.IsNaN(probe.Value)) return null;
+
+            var chunks = ChunkRanges(offset, length);
+            var words = new uint[chunks.Length];
+            var sizes = new int[chunks.Length];
+            var missing = new List<int>();
+
+            for (int i = 0; i < chunks.Length; i++)
+            {
+                var (chunkOffset, chunkSize) = chunks[i];
+                sizes[i] = chunkSize;
+                var reference = AreaReference(areaName, areaId, chunkOffset, chunkSize);
+                string key = reference.ClientKey();
+
+                EnsureSubscribed(key, key, reference, chunkOffset, chunkSize);
+
+                if (TryGetCached(key, out uint word, RawCacheMaxAgeMs)) words[i] = word;
+                else missing.Add(i);
+            }
+
+            if (missing.Count > 0)
+            {
+                var reads = missing
+                    .Select(i => RequestOnceAsync(
+                        AreaReference(areaName, areaId, chunks[i].Offset, chunks[i].Size),
+                        chunks[i].Offset,
+                        chunks[i].Size))
+                    .ToArray();
+                await Task.WhenAll(reads);
+
+                for (int r = 0; r < reads.Length; r++)
+                {
+                    uint? value = await reads[r];
+                    if (value == null)
+                    {
+                        _logger.LogWarning(
+                            "No client data received for {Area} chunk at offset 0x{Offset:X} ({Size} bytes)",
+                            areaName, chunks[missing[r]].Offset, chunks[missing[r]].Size);
+                        return null;
+                    }
+
+                    var (chunkOffset, chunkSize) = chunks[missing[r]];
+                    string key = AreaReference(areaName, areaId, chunkOffset, chunkSize).ClientKey();
+                    _cache[key] = new CacheEntry(value.Value, DateTime.UtcNow);
+                    words[missing[r]] = value.Value;
+                }
+            }
+
+            return WordsToBytes(words, sizes);
+        }
+
+        private bool TryGetCached(string cacheKey, out uint word) => TryGetCached(cacheKey, out word, CacheMaxAgeMs);
+
+        private bool TryGetCached(string cacheKey, out uint word, int maxAgeMs)
         {
             word = 0;
             if (!_cache.TryGetValue(cacheKey, out var entry)) return false;
-            if (DateTime.UtcNow - entry.Timestamp > TimeSpan.FromMilliseconds(CacheMaxAgeMs)) return false;
+            if (DateTime.UtcNow - entry.Timestamp > TimeSpan.FromMilliseconds(maxAgeMs)) return false;
             word = entry.Word;
             return true;
         }

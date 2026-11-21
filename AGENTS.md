@@ -18,7 +18,10 @@ WebSocket and UDP. `README.md` documents the API and the client data area suppor
   view index turns out wrong: the whole set is its `VIEWS` table. `www/737nav.html` (COM/NAV radio
   panel, ported from the xplapi project) reads `COM/NAV ACTIVE/STANDBY FREQUENCY:n` and changes the
   radios with key events; if a radio does not respond in a given aircraft, the names are in its
-  `RADIOS` table.
+  `RADIOS` table. `www/cdu.html` draws the PMDG 737 CDU screen
+  (`PMDG_NG3_CDU_0`/`PMDG_NG3_CDU_1`, 24x14 cells of symbol/color/flags plus `Powered`) from
+  `WS /api/clientdata/register`; the cell layout and flags are in its `render()`, the areas in its
+  `AREAS` table.
 - `build.ps1` (in the workspace root, outside this repository) also packages the release:
   `dist\MsfsApiServer.zip` every time, plus `dist\MsfsApiServer-selfcontained.zip` (the .NET runtime
   inside it) with `-SelfContained`. Both zips have one root folder `MsfsApiServer\` and `/`
@@ -32,6 +35,12 @@ WebSocket and UDP. `README.md` documents the API and the client data area suppor
 
 Build after any edit, and exercise the API once (`curl` or a test page). Both bugs found in the
 client data work looked fine in `git show` and only showed up when the code ran.
+
+To watch a range that is *changing* without touching the cockpit, stream `PMDG_NG3_Data` at offset
+`0x74` length 12: that is `FUEL_QtyCenter/Left/Right` as floats, and with the engines running they
+fall as fuel burns, so a change-only stream has to push a frame at every poll interval. A static
+screen (the CDU menu page) legitimately sends one frame and nothing after it - that is the
+change-detection path working, not the pipe being dead; `?alwaysUpdate=1` shows the loop instead.
 
 ## Tests
 
@@ -85,6 +94,18 @@ Read `README.md` -> "Client Data Areas" before touching that code. In short: the
 SimConnect wrapper returns one 32-bit word per definition whatever its type or size, a
 definition can hold only one field (`DUPLICATE_ID` otherwise), and reads are served from an
 `ON_SET` subscription cache.
+
+A whole block is read as a byte range instead of one field per byte:
+`ClientDataService.GetRawBytesAsync` covers it with 4-byte chunks, each with its own definition and
+`ON_SET` subscription (the same cache as the single fields), primes them once when the cache is
+cold, and clamps the last chunk to the end of the range - a definition that reaches past the area
+is rejected with `OUT_OF_BOUNDS` and never answered. A one-byte probe runs first, so an area that
+is not broadcast costs one timeout instead of one per chunk, and raw chunks are trusted for 10 s
+rather than 2 s so a static screen is not re-read 250 times. `GET /api/clientdata/raw` and
+`WS /api/clientdata/register` are the endpoints; both share `TryValidateRange`,
+`ClientDataRangeJson` and `TryParseFlag` in `WebApiHost`. Measured on a PMDG 737: 253 chunks ≈ 3%
+of one core, 2-4 ms per read from the cache, and a change-only stream that pushes at the poll
+interval (the CDU screen is the page that exercises it).
 
 Offsets are not part of this codebase: derive them from the installed `PMDG_NG3_SDK.h` with
 `tools/pmdg-fields.html` (or `node tools/update-pmdg-fields.js <header>`) instead of computing

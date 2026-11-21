@@ -7,6 +7,8 @@ A lightweight web API server that connects to Microsoft Flight Simulator (MSFS) 
 - SimVar get/set functionality through REST endpoints with optional output aliases
 - REST endpoint for SimConnect event sending (simulator commands)
 - WebSocket streaming of SimVar updates (same request body as getMultiple)
+- Client data areas (PMDG and friends) by field, and byte ranges over REST/WebSocket for the blocks
+  that are not a number per field - the PMDG 737 CDU screen is one
 - Variable UDP output - simulation variables can be streamed via UDP (e.g. for home cockpit hw)
 - Built-in status page (also from the tray icon) with connection state, lookup counters and the
   running configuration; your own html pages dropped into `www` next to the exe are served and listed there
@@ -212,6 +214,69 @@ Implementation notes, verified against MSFS 2024 and the PMDG 737:
 - Areas are identified by the numeric ID their creator used, so the published ID has to match
   (see `KnownClientDataAreas`).
 
+### Reading a whole block
+
+Not everything in a client data area is a number: the PMDG 737 shares each CDU screen as one block
+of 1009 bytes (24x14 cells of `Symbol`, `Color`, `Flags` plus a `Powered` bool), which no single
+field read can carry. Two endpoints read a byte range instead, as base64:
+
+```bash
+curl 'http://localhost:5018/api/clientdata/raw?area=PMDG_NG3_CDU_0&offset=0&length=1009'
+```
+
+```json
+{"area":"PMDG_NG3_CDU_0","offset":0,"length":1009,"available":true,"data":"IA…"}
+```
+
+- `area` - the published area name. It may be omitted only for an area this server knows
+  (`KnownClientDataAreas`); anything else has to pass its ID: `&areaId=0x4E473331` (decimal works too).
+- `offset` - byte offset inside the area, decimal or `0x` hex. Default `0`.
+- `length` - number of bytes, 1..8192. Required.
+- `available` is `false` and `data` is `null` when the area does not answer (add-on not loaded,
+  broadcast disabled) - never a block of zeros, since zeros are a legitimate screen.
+
+Over a socket the same range streams, and only when it changed:
+
+```
+ws://localhost:5018/api/clientdata/register
+```
+
+The first text message describes the range, plus how often to look and whether to send unchanged
+frames:
+
+```json
+{"area":"PMDG_NG3_CDU_0","offset":0,"length":1009,"intervalMs":200,"alwaysUpdate":false}
+```
+
+- `intervalMs` - how often the range is compared and sent, 50..5000, default 200. `alwaysUpdate`
+  (`true`/`1`) sends every interval instead of only on change.
+- Both may also be given as query parameters (`?intervalMs=200&alwaysUpdate=1`), which makes the
+  endpoint usable from a generic WebSocket client; the query wins over the body.
+- Server messages use the same shape as the REST response, so a page decodes one base64 string.
+- An invalid range is answered with `{"error":"..."}` before the socket is closed.
+
+How it works, and what it costs: the range is covered by 4-byte chunks (all the managed wrapper
+returns per definition), each with its own definition and its own `ON_SET` subscription, so a
+streaming page is served from the same cache as the single fields - measured at 2-4 ms per read
+after the first, and about 3% of one core for the 253 chunks of a CDU screen. The last chunk is
+clamped to the end of the range: a definition that reaches past the area is rejected
+(`OUT_OF_BOUNDS`) and never answered, which is why the 1009th byte of a screen is read on its own.
+Chunks are kept for 10 s rather than the 2 s of a single field, so a static screen is not re-read
+250 times when an add-on stops writing.
+
+The PMDG 737 CDU screen, as the data is laid out:
+
+- `Symbol` - ASCII, `0` for a blank cell; `0xA1`..`0xA4` are the left, right, up and down arrows.
+- `Color` - `0` white, `1` cyan, `2` green, `3` magenta, `4` amber, `5` red.
+- `Flags` - bit `0x01` small font (line headers), `0x02` reverse video (highlighted), `0x04` dimmed
+  (unused/inop entry).
+- Cells are `Cells[24][14]`, so cell `(column, row)` is at byte `(column * 14 + row) * 3`; byte 1008
+  is `Powered`, and a powered-off CDU still answers with its last content.
+- `PMDG_NG3_CDU_0` is the captain's screen and `PMDG_NG3_CDU_1` the first officer's; each is
+  broadcast only with `EnableCDUBroadcast.0=1` / `.1=1` in `[SDK]` of the aircraft's options file.
+
+`www/cdu.html` is the page that draws one of them.
+
 ## API Endpoints
 
 - `GET /api/status` - Check API server and MSFS connection status (reports the state the
@@ -225,6 +290,8 @@ Implementation notes, verified against MSFS 2024 and the PMDG 737:
 - `POST /api/simvar/setMultiple` - Set multiple SimVar values (sequential execution)
 - `POST /api/event/send` - Send a SimConnect event (name mandatory, value optional)
 - `WS /api/simvar/register` - WebSocket streaming of SimVar updates (see details below)
+- `GET /api/clientdata/raw` - Read a byte range of a client data area (base64), e.g. a PMDG CDU screen
+- `WS /api/clientdata/register` - WebSocket streaming of a client data byte range (see details above)
 
 For detailed API documentation, access the Swagger UI at `http://localhost:{port}/swagger` when the application is running.
 
@@ -423,6 +490,12 @@ works from any machine, and no CORS setup is needed. `www/test.html` is a small 
   in MHz, kHz, hertz or a BCD count are all normalised to hertz. The simvar and event names live in
   the `RADIOS` table at the top of the file; add-ons that keep their own radio state (PMDG, Fenix,
   iniBuilds) may need different names there.
+- `www/cdu.html` - the PMDG 737 CDU: the 24x14 character screen of the captain's or the first
+  officer's CDU, drawn from the `PMDG_NG3_CDU_0` / `PMDG_NG3_CDU_1` client data areas over
+  `/api/clientdata/register` (base64, ~5 frames a second, only when the screen changes). Colors,
+  the small-font and dimmed flags, reverse video and the `Powered` bool are rendered as the data
+  says; `CAPT`/`F/O` switches which CDU is shown and the two `A-`/`A+` buttons size the display for
+  a tablet. The screen is read-only so far - buttons come next.
 
 The list of views is the `VIEWS` table at the top of the page - one `state:type:index` triple per
 button. A view that lands somewhere else on your aircraft is a one-line change there.
@@ -542,8 +615,9 @@ dotnet test SimConnector.Tests/SimConnector.Tests.csproj -c Release
 They cover the SimVar name syntax (`NAME[unit]|alias`), the whole `CLIENT:` grammar (known areas,
 `@AREA_ID`, hex and decimal offsets, the type table, malformed references), the decoding rules
 (masking and sign extension for narrow types, float32 bit reinterpretation, two-word assembly of
-64-bit fields) and the lookup counters behind the status page (per variable and per client data
-field, reads that returned no value, ordering). The SimConnect SDK has to be installed, because the
+64-bit fields), the chunking and assembly of a byte range (the 253 chunks of a CDU screen, the
+short tail chunk, little-endian words) and the lookup counters behind the status page (per variable
+and per client data field, reads that returned no value, ordering). The SimConnect SDK has to be installed, because the
 tests assert against the `SIMCONNECT_CLIENTDATATYPE_*` values; the native `SimConnect.dll` is
 copied next to the test assembly automatically.
 

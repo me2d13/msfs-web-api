@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>737 CDU - MSFS web API</title>
+<style>
+  :root {
+    --bg: #101114;
+    --fs: 20px;
+    --screen: #05060a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: #d9dee7;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 12px 24px;
+  }
+
+  .head {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; max-width: 1100px; flex-wrap: wrap;
+  }
+  .head h1 { font-size: 1.05rem; margin: 0 8px 0 0; font-weight: 600; }
+  .head a { color: inherit; opacity: .6; font-size: .85rem; text-decoration: none; }
+  .head a:hover { opacity: 1; }
+  .head .spacer { margin-left: auto; }
+
+  button {
+    background: rgba(210, 220, 235, .12);
+    border: 1px solid rgba(210, 220, 235, .35);
+    border-radius: 10px;
+    color: inherit;
+    font: inherit;
+    font-size: .9rem;
+    min-height: 38px;
+    min-width: 44px;
+    padding: 4px 12px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:hover { background: rgba(210, 220, 235, .22); }
+  button.active { background: #3f7d3f; border-color: #2f5f2f; color: #fff; }
+
+  #state { font-size: .85rem; opacity: .75; }
+  #state.err { color: #ff8b8b; opacity: 1; }
+
+  /* The CDU bezel: a dark housing around the 24x14 character display. */
+  .bezel {
+    background: linear-gradient(180deg, #43464a 0%, #323437 55%, #2a2c2f 100%);
+    border: 1px solid #55585c;
+    border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08);
+    padding: 18px;
+  }
+
+  .screen {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 0;
+    background: var(--screen);
+    border: 2px solid #1b1d22;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: 'Consolas', 'DejaVu Sans Mono', 'Courier New', monospace;
+    font-size: var(--fs);
+    line-height: 1.15;
+    box-shadow: inset 0 0 26px rgba(120, 200, 255, .07), 0 0 22px rgba(120, 200, 255, .05);
+    /* Characters are drawn column by column from the data, the grid is filled row by row. */
+    user-select: none;
+  }
+  .screen.off { opacity: .35; }
+
+  .cell {
+    text-align: center;
+    white-space: pre;
+    min-width: 1ch;
+  }
+  .cell.small { font-size: .78em; }
+  .cell.dim { opacity: .5; }
+  .cell.rev { color: #05060a !important; }
+
+  @media (max-width: 760px) {
+    :root { --fs: 14px; }
+    .bezel { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>737 CDU</h1>
+    <button id="btnCapt">CAPT</button>
+    <button id="btnFo">F/O</button>
+    <span id="state">connecting…</span>
+    <span class="spacer"></span>
+    <button id="btnSmaller" title="smaller">A−</button>
+    <button id="btnBigger" title="bigger">A+</button>
+    <a href="/">status</a>
+  </div>
+
+  <div class="bezel">
+    <div class="screen off" id="screen"></div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  const COLS = 24;              // PMDG_NG3_CDU_Screen: Cells[24][14]
+  const ROWS = 14;
+  const CELL_BYTES = 3;         // Symbol, Color, Flags
+  const POWERED_OFFSET = COLS * ROWS * CELL_BYTES;   // 1008, the bool after the cells
+  const RANGE_LENGTH = POWERED_OFFSET + 1;           // 1009 bytes for the whole screen
+  const INTERVAL_MS = 200;      // how often the server sends a changed screen
+
+  // The two CDU data areas; the server knows these names, the ID is sent for clarity.
+  const AREAS = {
+    capt: { name: 'PMDG_NG3_CDU_0', id: 0x4E473335, label: 'CAPT' },
+    fo:   { name: 'PMDG_NG3_CDU_1', id: 0x4E473336, label: 'F/O' },
+  };
+
+  // PMDG_NG3_CDU_COLOR_* values
+  const COLORS = [
+    '#ffffff', // 0 WHITE
+    '#00e5ff', // 1 CYAN
+    '#4ade80', // 2 GREEN
+    '#ff5cf4', // 3 MAGENTA
+    '#ffb52e', // 4 AMBER
+    '#ff5252', // 5 RED
+  ];
+  const FLAG_SMALL_FONT = 0x01;
+  const FLAG_REVERSE = 0x02;
+  const FLAG_UNUSED = 0x04;
+
+  // The SDK draws its own arrows for \xA1..\xA4; everything else is the ASCII code itself.
+  const ARROWS = { 0xA1: '\u2190', 0xA2: '\u2192', 0xA3: '\u2191', 0xA4: '\u2193' };
+
+  const els = {
+    screen: document.getElementById('screen'),
+    state: document.getElementById('state'),
+    btnCapt: document.getElementById('btnCapt'),
+    btnFo: document.getElementById('btnFo'),
+    btnSmaller: document.getElementById('btnSmaller'),
+    btnBigger: document.getElementById('btnBigger'),
+  };
+
+  // --- screen -------------------------------------------------------------------------------
+  // One span per cell, in display order (row by row). The data is column by column, so every
+  // cell knows its own index in the data block.
+  const cellEls = [];
+  const cellIndex = [];
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const span = document.createElement('span');
+      span.className = 'cell';
+      span.textContent = ' ';
+      els.screen.appendChild(span);
+      cellEls.push(span);
+      cellIndex.push(col * ROWS + row);
+    }
+  }
+
+  // Last rendered state per data index, so a frame only touches what changed.
+  const shownSymbol = new Array(COLS * ROWS).fill(null);
+  const shownStyle = new Array(COLS * ROWS).fill('');
+
+  function symbolOf(byte) {
+    if (byte === 0) return ' ';
+    if (ARROWS[byte]) return ARROWS[byte];
+    if (byte < 32 || byte === 127) return ' ';
+    return String.fromCharCode(byte);
+  }
+
+  function render(bytes) {
+    for (let i = 0; i < cellEls.length; i++) {
+      const d = cellIndex[i];
+      const symbol = symbolOf(bytes[d * CELL_BYTES]);
+      const color = COLORS[bytes[d * CELL_BYTES + 1]] || COLORS[0];
+      const flags = bytes[d * CELL_BYTES + 2];
+
+      const style = color + '|' + (flags & 0x07);
+      if (shownStyle[d] !== style) {
+        shownStyle[d] = style;
+        const el = cellEls[i];
+        el.style.color = color;
+        el.classList.toggle('small', (flags & FLAG_SMALL_FONT) !== 0);
+        el.classList.toggle('dim', (flags & FLAG_UNUSED) !== 0);
+        el.classList.toggle('rev', (flags & FLAG_REVERSE) !== 0);
+        if (flags & FLAG_REVERSE) el.style.background = color;
+        else el.style.background = 'transparent';
+      }
+      if (shownSymbol[d] !== symbol) {
+        shownSymbol[d] = symbol;
+        cellEls[i].textContent = symbol;
+      }
+    }
+
+    const powered = bytes[POWERED_OFFSET] !== 0;
+    els.screen.classList.toggle('off', !powered);
+    if (!powered) setState('display off');
+    else setState(AREA.label + ' \u00b7 live', false);
+  }
+
+  function clearScreen() {
+    for (let i = 0; i < cellEls.length; i++) {
+      cellEls[i].textContent = ' ';
+      cellEls[i].style.color = COLORS[0];
+      cellEls[i].style.background = 'transparent';
+      cellEls[i].className = 'cell';
+      shownSymbol[cellIndex[i]] = ' ';
+      shownStyle[cellIndex[i]] = COLORS[0] + '|0';
+    }
+    els.screen.classList.add('off');
+  }
+
+  function setState(text, isError) {
+    if (els.state.textContent !== text) els.state.textContent = text;
+    els.state.classList.toggle('err', isError === true);
+  }
+
+  // --- websocket ----------------------------------------------------------------------------
+  let ws = null;
+  let reconnectTimer = null;
+  let AREA = AREAS.capt;
+
+  function base64ToBytes(data) {
+    const binary = atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    if (ws) {
+      try { ws.close(); } catch (e) {}
+      ws = null;
+    }
+    clearScreen();
+    setState('connecting…', false);
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    try {
+      ws = new WebSocket(proto + '://' + location.host + '/api/clientdata/register');
+    } catch (err) {
+      setState('socket failed', true);
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        area: AREA.name,
+        areaId: AREA.id,
+        offset: 0,
+        length: RANGE_LENGTH,
+        intervalMs: INTERVAL_MS,
+      }));
+    };
+
+    ws.onmessage = ev => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.error) { setState(msg.error, true); return; }
+      if (!msg.data) {
+        clearScreen();
+        setState('no data - CDU broadcast on?', true);
+        return;
+      }
+      const bytes = base64ToBytes(msg.data);
+      if (bytes.length < RANGE_LENGTH) {
+        setState('short frame (' + bytes.length + ')', true);
+        return;
+      }
+      render(bytes);
+    };
+
+    ws.onclose = () => {
+      setState('disconnected', true);
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      try { ws.close(); } catch (e) {}
+    };
+  }
+
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 2000);
+  }
+
+  function selectArea(next) {
+    if (AREA === next) return;
+    AREA = next;
+    els.btnCapt.classList.toggle('active', AREA === AREAS.capt);
+    els.btnFo.classList.toggle('active', AREA === AREAS.fo);
+    connect();
+  }
+
+  // --- zoom ---------------------------------------------------------------------------------
+  const ZOOM_KEY = 'msfs-cdu-zoom';
+  let zoom = 100;
+
+  function applyZoom(next) {
+    zoom = Math.min(220, Math.max(50, next));
+    document.documentElement.style.setProperty('--fs', (20 * zoom / 100).toFixed(1) + 'px');
+    try { localStorage.setItem(ZOOM_KEY, String(zoom)); } catch (e) {}
+  }
+
+  els.btnCapt.addEventListener('click', () => selectArea(AREAS.capt));
+  els.btnFo.addEventListener('click', () => selectArea(AREAS.fo));
+  els.btnSmaller.addEventListener('click', () => applyZoom(zoom - 10));
+  els.btnBigger.addEventListener('click', () => applyZoom(zoom + 10));
+
+  let stored = null;
+  try { stored = parseInt(localStorage.getItem(ZOOM_KEY), 10); } catch (e) {}
+  applyZoom(Number.isFinite(stored) ? stored : 100);
+
+  els.btnCapt.classList.add('active');
+  clearScreen();
+  connect();
+})();
+</script>
+</body>
+</html>
