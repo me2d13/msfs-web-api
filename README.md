@@ -1,176 +1,205 @@
 # MSFS Web API Server
 
-A lightweight web API server that connects to Microsoft Flight Simulator (MSFS) and exposes SimConnect functionality through REST endpoints.
+A small web API server that connects to Microsoft Flight Simulator (2020 and 2024) and exposes
+SimConnect over HTTP, WebSocket and UDP - so a page in a browser, a phone, a tablet or a bit of
+cockpit hardware can read and set simulation variables, send simulator events, and read the data
+add-ons such as PMDG broadcast. It runs in the Windows system tray and ships with example pages
+(a PMDG 737 radio panel, a view switcher and a full CDU with working keys).
+
+It exists for two reasons of mine: to make SimConnect reachable from JavaScript so web-based
+cockpit panels can be built against it (see [fs-web-panels](https://github.com/me2d13/fs-web-panels)),
+and to feed my [motorized throttle quadrant](https://github.com/me2d13/mtu-pio) over UDP so it
+moves in MSFS too, not only in X-Plane.
 
 ## Features
 
-- SimVar get/set functionality through REST endpoints with optional output aliases
-- REST endpoint for SimConnect event sending (simulator commands)
-- WebSocket streaming of SimVar updates (same request body as getMultiple)
-- Client data areas (PMDG and friends) by field, and byte ranges over REST/WebSocket for the blocks
-  that are not a number per field - the PMDG 737 CDU screen is one
-- Variable UDP output - simulation variables can be streamed via UDP (e.g. for home cockpit hw)
-- Built-in status page (also from the tray icon) with connection state, lookup counters and the
-  running configuration; your own html pages dropped into `www` next to the exe are served and listed there
-- System tray application with easy access to API documentation
-- Swagger UI for API exploration and testing
-- YAML configuration file support with command-line override
+- **SimVars over REST** - get and set, single or multiple, with optional output aliases
+- **SimConnect events** - send any simulator event by name with a value
+- **Client data areas** - read the shared data blocks add-ons publish (PMDG and friends), by field,
+  and whole byte ranges for the blocks that are not a number per field (a CDU screen, for example)
+- **WebSocket streaming** - SimVar values, or a client data byte range, pushed as they change
+- **UDP output** - stream SimVars to home cockpit hardware at a fixed interval
+- **Status page** - connection state, lookup counters and the running configuration, served by the
+  server itself; your own html pages dropped into `www` next to the exe are served and listed there
+- **Swagger UI** - every endpoint, browsable and testable in the browser
+- **Tray application with a YAML config file**, overridable from the command line
 
 ## Disclaimer
 
-I'm Java developer and have no experience with C# or .NET development. 
-The application is 80% AI-generated, just keeping maintainable structure.
-It has 2 main purposes for me:
-1. make SimConnect accessible from javascript so I can build web-based cockpit panels (see [fs-web-panels](https://github.com/me2d13/fs-web-panels) repo)
-1. send UDP data to my [motorized thtrottle quadrant](https://github.com/me2d13/mtu-pio) so it moves even for MSFS (not only X-Plane))
+I'm a Java developer with no C# or .NET experience; the application is largely AI-generated, kept
+in a maintainable shape. It is built for my own cockpit and shared in case it saves you some work.
 
-## Running the Application
+## Getting started
 
-The application runs by default on port 5018. You can start it by running:
+Unpack the release zip and run `MsfsApiServer.exe`. It sits in the tray and listens on
+<http://localhost:5018> - open that address (or double click the tray icon) for the status page,
+which shows whether the SimConnect link to the simulator is up.
 
-```bash
-MsfsApiServer.exe
-```
+Needs Windows and the .NET 8 desktop *and* ASP.NET Core runtimes; the `-selfcontained` build in the
+release carries the runtime itself and needs nothing installed. See
+[System requirements](#system-requirements).
 
 ### Configuration
 
-The application can be configured via a YAML configuration file and/or command-line arguments. Command-line arguments take precedence over configuration file values.
+The application is configured by a YAML file and/or command-line arguments; command-line arguments
+win.
 
-#### Configuration File
-
-By default, the app looks for `config.yaml` in the same directory as the executable. You can specify a different configuration file using:
+By default it looks for `config.yaml` next to the executable:
 
 ```bash
 MsfsApiServer.exe --config msfs2024.yaml
 ```
 
-**Configuration file structure (`config.yaml`):**
-
 ```yaml
 general:
-  logFile: "C:\\Logs\\msfsapi.log"  # Optional: path to log file
+  logFile: "C:\\Logs\\msfsapi.log"   # Optional: path to the log file
 
 webApi:
-  port: 5018  # Optional: port for the web server
+  port: 5018                         # Optional: port for the web server
 
 udp:
-  enabled: false  # Enable/disable UDP streaming (default: false)
-  targetHost: "192.168.1.100"  # Target host for UDP output
-  targetPort: 49002      # Target port for UDP output
-  interval: 100   # Update interval in milliseconds
-  variables:    # List of SimVars to stream via UDP
+  enabled: false                     # UDP streaming is off unless enabled here
+  targetHost: "192.168.1.100"
+  targetPort: 49002
+  interval: 100                      # milliseconds
+  variables:                         # SimVars to stream, aliases allowed after "|"
     - "PLANE ALTITUDE"
     - "AIRSPEED INDICATED"
-    - "HEADING INDICATOR"
-# You can also use output aliases with pipe delimiter:
     - "GENERAL ENG THROTTLE LEVER POSITION:1|THR1"
     - "BRAKE PARKING INDICATOR|PRK_BRAKE"
 ```
 
-**Configuration sections:**
+Sections:
 
-- **`general`**: Application-wide settings
-  - `logFile`: Log file path (same as `--logFile` command-line argument)
+- **`general`** - `logFile`: where to write the log (same as `--logFile`).
+- **`webApi`** - `port`: the port to listen on (same as `--port`).
+- **`udp`** - `enabled` (default `false`), `targetHost`, `targetPort`, `interval` (default 100 ms)
+  and `variables`, the list to stream (aliases allowed).
 
-- **`webApi`**: Web API server settings
-  - `port`: Port number for the web server (same as `--port` command-line argument)
+Command-line arguments:
 
-- **`udp`**: UDP streaming configuration
-  - `enabled`: Enable/disable UDP streaming (default: `false`). UDP streaming is disabled by default and must be explicitly enabled in the configuration file.
-  - `targetHost`: Target host for UDP output
-  - `targetPort`: Target port for UDP output
-  - `interval`: Update interval in milliseconds (default: 100)
-  - `variables`: List of SimVar names to stream via UDP (supports output aliases, see below)
-
-#### Command-Line Arguments
-
-Command-line arguments override configuration file values:
+- `--port <number>` - web server port (default 5018)
+- `--logFile <path>` - log file path
+- `--logLevel <level>` - Trace, Debug, Information (default), Warning, Error, Critical or None
+- `--config <filename>` - configuration file name or path (default `config.yaml`)
 
 ```bash
-MsfsApiServer.exe --port 5000 --logFile "C:\\Temp\\msfsapi.log" --config myconfig.yaml
-```
-
-Available arguments:
-
-- `--port <number>`: Web server port (default: 5018, overrides `webApi.port` in config)
-- `--logFile <path>`: Log file path (overrides `general.logFile` in config)
-- `--logLevel <level>`: Log level - Trace, Debug, Information (default), Warning, Error, Critical, or None
-- `--config <filename>`: Configuration file name or path (default: `config.yaml`)
-
-**Examples:**
-```bash
-# Run with debug logging to see all SimVar operations
-MsfsApiServer.exe --logLevel Debug
-
-# Run with custom config and warning-only logs
-MsfsApiServer.exe --config myconfig.yaml --logLevel Warning
-
-# Combine multiple parameters
 MsfsApiServer.exe --port 5000 --logLevel Debug --logFile "C:\\Logs\\debug.log"
 ```
 
 ### Logging
 
-The app writes logs to a file so you can inspect the last run even when started without a console.
+Logs go to a file, so the last run can be read even when the app starts without a console.
 
-- Default file: next to the executable, with the same name and a `.log` extension (e.g., `MsfsApiServer.log`).
-- The file is recreated (truncated) on each start and kept after the program exits.
-- You can override the file via configuration file (`general.logFile`) or command line (`--logFile`):
+- Default: next to the executable, same name with `.log` (e.g. `MsfsApiServer.log`).
+- The file is truncated on each start and kept after the program exits.
+- `--logFile` or `general.logFile` overrides it; if the file cannot be written, file logging is
+  silently disabled.
+
+## API
+
+Everything lives under `/api` on the configured port. Swagger UI at
+`http://localhost:{port}/swagger` documents the same surface interactively.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/status` | Server and MSFS connection state |
+| `GET /api/stats` | Everything the status page shows, as JSON |
+| `POST /api/simvar/get` | Read one SimVar |
+| `POST /api/simvar/set` | Write one SimVar |
+| `POST /api/simvar/getMultiple` | Read several SimVars (in parallel) |
+| `POST /api/simvar/setMultiple` | Write several SimVars (in order) |
+| `POST /api/event/send` | Send a SimConnect event by name |
+| `WS /api/simvar/register` | Stream SimVar values |
+| `GET /api/clientdata/raw` | Read a byte range of a client data area (base64) |
+| `WS /api/clientdata/register` | Stream a client data byte range |
+| `GET /{file}` | A page from the `www` directory next to the exe |
+
+### SimVars
 
 ```bash
-MsfsApiServer.exe --logFile "C:\\Temp\\msfsapi.log"
+curl -X POST http://localhost:5018/api/simvar/get \
+  -H 'Content-Type: application/json' \
+  -d '{"simVarName": "PLANE ALTITUDE", "unit": "feet"}'
 ```
 
-- If the file cannot be written (permissions, path), file logging is silently disabled.
+```json
+{"PLANE ALTITUDE": 5234.2}
+```
 
-## Output Aliases
+`getMultiple` takes an array and answers a map; `setMultiple` writes them in the order given, which
+matters for MSFS actions:
 
-SimVar names can include optional output aliases using pipe delimiter (`|`). This allows you to use shorter, more convenient names in API responses while still querying the full SimConnect variable name.
+```bash
+curl -X POST http://localhost:5018/api/simvar/getMultiple \
+  -H 'Content-Type: application/json' \
+  -d '[{"simVarName":"CAMERA STATE","unit":""},
+       {"simVarName":"AIRSPEED INDICATED","unit":"knots"}]'
+```
 
-**Format:** `ACTUAL_VAR_NAME|OUTPUT_ALIAS`
+```json
+{"CAMERA STATE": 2, "AIRSPEED INDICATED": 142.5}
+```
 
-**Example:**
-- Request: `"GENERAL ENG THROTTLE LEVER POSITION:1|THR1"`
-- SimConnect queries: `GENERAL ENG THROTTLE LEVER POSITION:1`
-- Response uses: `THR1`
+A value that could not be read comes back as `null` (the SimVar timed out, or the add-on is not
+broadcasting) - never as `0`, since zero is a real value.
 
-**Supported everywhere:**
-- Single get/set endpoints
-- Multiple get/set endpoints
-- WebSocket streaming
-- UDP streaming (via config file)
+### Output aliases
 
-**Example request with alias:**
+Any name may carry an alias after a pipe, so responses, WebSocket messages and UDP payloads use the
+short name while the full SimConnect name is what gets queried:
+
 ```bash
 curl -X POST http://localhost:5018/api/simvar/get \
   -H 'Content-Type: application/json' \
   -d '{"simVarName": "BRAKE PARKING INDICATOR|PRK_BRAKE", "unit": ""}'
 ```
 
-**Response:**
 ```json
 {"PRK_BRAKE": 1}
 ```
 
-Without aliases, responses use the full variable name. Mix and match as needed!
+Aliases work on every endpoint, the WebSocket and the UDP stream.
 
-## Client Data Areas (`CLIENT:` variables)
+### Events
+
+```bash
+curl -X POST http://localhost:5018/api/event/send \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "COM_STBY_RADIO_SET_HZ", "value": 120000000}'
+```
+
+`value` is the event's data word (a frequency, a position, a click flag). Events are looked up by
+name the first time and reused after that.
+
+Some add-ons take their own numbers as the *value* of an event the simulator knows - PMDG's CDU
+keys are driven that way, which is how `www/cdu.html` presses them:
+
+```bash
+curl -X POST http://localhost:5018/api/event/send \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "ROTOR_BRAKE", "value": 55201}'      # FMS Left LEGS
+```
+
+### Client data areas (`CLIENT:` variables)
 
 Add-ons such as the PMDG 737 share state through SimConnect **client data areas** - named byte
-blocks that other SimConnect clients can read. These are not SimVars, so they are addressed
-explicitly with a `CLIENT:` prefix:
+blocks other SimConnect clients can read. They are not SimVars, so they are addressed with a
+`CLIENT:` prefix:
 
 ```
 CLIENT:AREA_NAME[@AREA_ID]:OFFSET[:TYPE]|OUTPUT_ALIAS
 ```
 
 - `AREA_NAME` - the published name of the area, e.g. `PMDG_NG3_Data`.
-- `@AREA_ID` - optional. Some areas are identified by a numeric ID published by the add-on
-  (`PMDG_NG3_Data` is `0x4E473331`). Known areas are pre-registered; for anything else supply it.
-- `OFFSET` - byte offset inside the area, decimal or `0x` hex. Offsets come from the add-on's SDK header.
+- `@AREA_ID` - optional. Some areas are identified by the numeric ID their author published
+  (`PMDG_NG3_Data` is `0x4E473331`). Areas this server knows are pre-registered; for anything else
+  supply the ID.
+- `OFFSET` - byte offset inside the area, decimal or `0x` hex, from the add-on's SDK header.
 - `TYPE` - optional: `bool`/`byte`, `int8`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`,
-  `float`, `double` (default `double`). Unsigned variants matter for C `unsigned char`/`unsigned short` fields.
-- `OUTPUT_ALIAS` - same pipe syntax as SimVars, so UDP/WS/JSON keys stay short.
+  `float`, `double` (default `double`). The unsigned variants matter for C `unsigned char` /
+  `unsigned short` fields.
+- `OUTPUT_ALIAS` - the same pipe syntax as SimVars.
 
 ```bash
 curl -X POST http://localhost:5018/api/simvar/get \
@@ -182,37 +211,16 @@ curl -X POST http://localhost:5018/api/simvar/get \
 {"AT_ARM": 1}
 ```
 
-Works everywhere SimVars do: `get`, `getMultiple`, WebSocket streaming and UDP streaming.
-Read-only, and a field that cannot be read (add-on not loaded, broadcast disabled, offset past the
-end of the area) never reaches SimConnect as a SimVar: the value comes back as `NaN`, which
-serializes to `null` in JSON (`{"MCP_ALT": null}`) and is dropped from UDP/WebSocket payloads
-rather than reported as `0`. A request that yields no result at all - a malformed reference, or
-SimConnect not connected - answers `null` with HTTP 200.
+`CLIENT:` fields work everywhere SimVars do - `get`, `getMultiple`, the WebSocket and the UDP
+stream - and they are read-only. A field that cannot be read (add-on not loaded, broadcast
+disabled, offset past the end of the area) comes back as `null` rather than `0`. With a wrong
+offset, expect the first read of that field to wait out the 2 s timeout: SimConnect rejects the
+definition and never replies.
 
-A wrong offset is worth watching for: SimConnect reports
-`SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS` (31) for the definition and never replies, so the first read
-of that field waits out the 2 s timeout before returning `null`.
-
-**Caching.** Each field is subscribed once with `SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET`, so
-SimConnect pushes new data as the add-on writes it and reads are served from a cache instead of
-a request per read. The first read of a field is primed with a one-shot request, and a cached
-value that has not been refreshed for two seconds is primed again. That keeps streaming loops at
-their configured rate: 21 fields stream at 50 ms with the cache, while eight fields could not
-hold a 100 ms interval when every read was a round trip.
-
-Implementation notes, verified against MSFS 2024 and the PMDG 737:
-
-- The managed SimConnect wrapper hands back client data as a single 32-bit word per definition,
-  whatever the declared type or size, so fields are read as raw byte ranges and decoded here.
-  Fields wider than 4 bytes (`int64`, `double`) are fetched as two 4-byte chunks.
-- A definition may only hold one field: adding a second one makes SimConnect reject it with
-  `SIMCONNECT_EXCEPTION_DUPLICATE_ID`. Each field therefore gets its own definition, and its own
-  subscription.
-- `RegisterDataDefineStruct` has no effect on client data replies.
-- `ON_SET` delivered roughly 14 updates/second on a PMDG 737, `SECOND` exactly one, and
-  `VISUAL_FRAME` about 54 - too many to be worth subscribing to.
-- Areas are identified by the numeric ID their creator used, so the published ID has to match
-  (see `KnownClientDataAreas`).
+Getting the offsets right is most of the work, so this repository ships a helper for the PMDG NG3:
+`tools/pmdg-fields.html` reads the aircraft's `PMDG_NG3_SDK.h` (one is embedded, and you can pick a
+newer one), shows every field with its offset and type, and hands you the ready-to-paste `CLIENT:`
+reference.
 
 ### Reading a whole block
 
@@ -228,420 +236,165 @@ curl 'http://localhost:5018/api/clientdata/raw?area=PMDG_NG3_CDU_0&offset=0&leng
 {"area":"PMDG_NG3_CDU_0","offset":0,"length":1009,"available":true,"data":"IA…"}
 ```
 
-- `area` - the published area name. It may be omitted only for an area this server knows
-  (`KnownClientDataAreas`); anything else has to pass its ID: `&areaId=0x4E473331` (decimal works too).
-- `offset` - byte offset inside the area, decimal or `0x` hex. Default `0`.
+- `area` - the published area name; only an area this server knows may omit its ID, anything else
+  passes `&areaId=0x4E473331` (decimal works too).
+- `offset` - byte offset, decimal or `0x` hex. Default `0`.
 - `length` - number of bytes, 1..8192. Required.
-- `available` is `false` and `data` is `null` when the area does not answer (add-on not loaded,
-  broadcast disabled) - never a block of zeros, since zeros are a legitimate screen.
+- `available` is `false` and `data` is `null` when the area does not answer - never a block of
+  zeros, since zeros are a legitimate screen.
 
-Over a socket the same range streams, and only when it changed:
+The same range can be streamed, and then only when it changed:
 
 ```
 ws://localhost:5018/api/clientdata/register
 ```
 
-The first text message describes the range, plus how often to look and whether to send unchanged
-frames:
+The first text message describes the range and the pace:
 
 ```json
 {"area":"PMDG_NG3_CDU_0","offset":0,"length":1009,"intervalMs":200,"alwaysUpdate":false}
 ```
 
-- `intervalMs` - how often the range is compared and sent, 50..5000, default 200. `alwaysUpdate`
-  (`true`/`1`) sends every interval instead of only on change.
-- Both may also be given as query parameters (`?intervalMs=200&alwaysUpdate=1`), which makes the
-  endpoint usable from a generic WebSocket client; the query wins over the body.
-- Server messages use the same shape as the REST response, so a page decodes one base64 string.
-- An invalid range is answered with `{"error":"..."}` before the socket is closed.
+- `intervalMs` - how often the range is compared and sent, 50..5000, default 200.
+- `alwaysUpdate` (`true`/`1`) sends every interval instead of only on change.
+- Both may also be given as query parameters (`?intervalMs=200&alwaysUpdate=1`), which is handy from
+  a generic WebSocket client; the query wins over the body.
+- Server messages have the same shape as the REST response, so a page decodes one base64 string.
+- An invalid range is answered with `{"error":"..."}` and the socket is closed.
 
-How it works, and what it costs: the range is covered by 4-byte chunks (all the managed wrapper
-returns per definition), each with its own definition and its own `ON_SET` subscription, so a
-streaming page is served from the same cache as the single fields - measured at 2-4 ms per read
-after the first, and about 3% of one core for the 253 chunks of a CDU screen. The last chunk is
-clamped to the end of the range: a definition that reaches past the area is rejected
-(`OUT_OF_BOUNDS`) and never answered, which is why the 1009th byte of a screen is read on its own.
-Chunks are kept for 10 s rather than the 2 s of a single field, so a static screen is not re-read
-250 times when an add-on stops writing.
+#### The PMDG 737 CDU screen, as the data is laid out
 
-The PMDG 737 CDU screen, as the data is laid out:
-
-- `Symbol` - ASCII, `0` for a blank cell; `0xA1`..`0xA4` are the left, right, up and down arrows.
+- `Symbol` - `0` for a blank cell, ASCII up to `0x7F`, and above that a glyph of the CDU's own font
+  rather than the Latin-1 character with the same number: `0xA1`..`0xA4` are the left, right, up and
+  down arrows, `0xB0` is the degree sign and `0xEA` is the hollow box that stands for a numeric
+  field the FMC has no value for.
 - `Color` - `0` white, `1` cyan, `2` green, `3` magenta, `4` amber, `5` red.
 - `Flags` - bit `0x01` small font (line headers), `0x02` reverse video (highlighted), `0x04` dimmed
-  (unused/inop entry).
-- Cells are `Cells[24][14]`, so cell `(column, row)` is at byte `(column * 14 + row) * 3`; byte 1008
-  is `Powered`, and a powered-off CDU still answers with its last content.
-- `PMDG_NG3_CDU_0` is the captain's screen and `PMDG_NG3_CDU_1` the first officer's; each is
-  broadcast only with `EnableCDUBroadcast.0=1` / `.1=1` in `[SDK]` of the aircraft's options file.
+  (unused or inoperative entry).
+- Cells are `Cells[24][14]`, so cell `(column, row)` starts at byte `(column * 14 + row) * 3`; byte
+  1008 is `Powered`, and a powered-off CDU keeps answering with its last content.
+- `PMDG_NG3_CDU_0` is the captain's screen, `PMDG_NG3_CDU_1` the first officer's; each is broadcast
+  only with `EnableCDUBroadcast.0=1` / `.1=1` in the `[SDK]` section of the aircraft's options file.
 
-`www/cdu.html` is the page that draws one of them.
+`www/cdu.html` draws one of them.
 
-## API Endpoints
-
-- `GET /api/status` - Check API server and MSFS connection status (reports the state the
-  connection monitor keeps; the monitor reconnects within 5 s if the link is lost)
-- `GET /` (or `/status`) - Built-in status page, see [Status Page](#status-page)
-- `GET /api/stats` - Everything the status page shows, as JSON
-- `GET /{file}` - A page from the `www` directory next to the exe, e.g. `/views.html`
-- `POST /api/simvar/get` - Get a single SimVar value
-- `POST /api/simvar/set` - Set a single SimVar value
-- `POST /api/simvar/getMultiple` - Get multiple SimVar values (parallel execution)
-- `POST /api/simvar/setMultiple` - Set multiple SimVar values (sequential execution)
-- `POST /api/event/send` - Send a SimConnect event (name mandatory, value optional)
-- `WS /api/simvar/register` - WebSocket streaming of SimVar updates (see details below)
-- `GET /api/clientdata/raw` - Read a byte range of a client data area (base64), e.g. a PMDG CDU screen
-- `WS /api/clientdata/register` - WebSocket streaming of a client data byte range (see details above)
-
-For detailed API documentation, access the Swagger UI at `http://localhost:{port}/swagger` when the application is running.
-
-### Examples
-
-#### Get Single SimVar
-
-```bash
-curl -X 'POST' 'http://localhost:5018/api/simvar/get' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "simVarName": "PLANE ALTITUDE",
-    "unit": "feet"
-  }'
-```
-
-**Response:**
-```json
-{"PLANE ALTITUDE": 5234.2}
-```
-
-#### Get Single SimVar with Alias
-
-```bash
-curl -X 'POST' 'http://localhost:5018/api/simvar/get' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "simVarName": "BRAKE PARKING INDICATOR|PRK_BRAKE",
-    "unit": ""
-  }'
-```
-
-**Response:**
-```json
-{"PRK_BRAKE": 1}
-```
-
-#### Set Single SimVar
-
-```bash
-curl -X 'POST' 'http://localhost:5018/api/simvar/set' \
--H 'Content-Type: application/json' \
-  -d '{
-    "simVarName": "CAMERA STATE",
-    "unit": "",
-    "value": 2
-  }'
-```
-
-#### Get Multiple SimVars
-
-Read multiple variables in parallel (order doesn't matter):
-
-```bash
-curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' \
-  -H 'Content-Type: application/json' \
-  -d '[
-    {
-      "simVarName": "CAMERA STATE",
-      "unit": ""
-    },
-    {
-      "simVarName": "PLANE ALTITUDE",
-      "unit": "feet"
-    },
-    {
-      "simVarName": "AIRSPEED INDICATED",
-      "unit": "knots"
-    }
-  ]'
-```
-
-**Response:**
-```json
-{
-  "CAMERA STATE": 2,
-  "PLANE ALTITUDE": 5234.2,
-  "AIRSPEED INDICATED": 142.5
-}
-```
-
-#### Get Multiple SimVars with Aliases
-
-```bash
-curl -X 'POST' 'http://localhost:5018/api/simvar/getMultiple' \
-  -H 'Content-Type: application/json' \
-  -d '[
-    {
-      "simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1|THR1",
-      "unit": ""
-    },
-    {
-      "simVarName": "BRAKE PARKING INDICATOR|PRK_BRAKE",
-      "unit": ""
-    },
-    {
-      "simVarName": "PLANE ALTITUDE",
-      "unit": "feet"
-    }
-  ]'
-```
-
-**Response:**
-```json
-{
-  "THR1": 85.5,
-  "PRK_BRAKE": 0,
-  "PLANE ALTITUDE": 5234.2
-}
-```
-
-#### Set Multiple SimVars
-
-Set multiple variables sequentially (order is preserved for MSFS actions):
-
-```bash
-curl -X 'POST' 'http://localhost:5018/api/simvar/setMultiple' \
-  -H 'Content-Type: application/json' \
-  -d '[
-    {
-    "simVarName": "CAMERA STATE",
-      "unit": "",
-      "value": 2
-    },
-    {
-      "simVarName": "FUEL TANK CENTER QUANTITY",
-      "unit": "gallons",
-      "value": 50
-    }
-  ]'
-```
-
-## Status Page
-
-`http://localhost:{port}/` (also `/status`) shows what the server is doing right now; the tray menu
-opens it with **Open status page**, and a double click on the tray icon does the same. The page
-re-reads `/api/stats` every two seconds, so it can be left open while you work.
-
-It reports:
-
-- **Server** - exe name and path, port, local and network URL, log file (with its size), pid,
-  runtime, start time and uptime.
-- **Configuration** - the config file it was loaded from (or that it was not found), command-line
-  overrides, log level, and whether UDP/serial streaming is enabled in the config.
-- **Streaming** - for each stream: target, interval, the variables with their aliases, whether it is
-  sending, how many packets/lines went out, when the last one left, and the last error.
-- **SimConnect** - connection state and the client data areas seen so far (name and data area ID).
-- **Variables** - every variable that was looked up, with reads, writes, requests that came back
-  without a value, the last value and when it was last updated. The counters are kept in
-  `SimVarService`, so HTTP, WebSocket, UDP and serial lookups all land in the same table. A variable
-  is identified by its name plus unit (`AIRSPEED INDICATED[knots]`); a client data field by
-  `CLIENT:AREA:OFFSET:TYPE` with the canonical type name, so `:bool` and `:byte` on one offset
-  share a row (they are the same field).
-- **Local files** - at the top of the page, one link per html file in the `www` directory next to
-  the exe (details in the tooltip).
-
-### Your own pages
-
-Put html files into the `www` directory next to `MsfsApiServer.exe` (it is created at startup, and
-`www/test.html` from the repository is copied there on build). Each page shows up on the status
-page as a link named after the file without its extension - `views.html` becomes **views** - and is
-served at its own path, so `views.html` is at `http://localhost:5018/views.html`.
-
-Subdirectories work too, so a page can pull in its own assets - `<img src="/img/plane.jpg">`,
-`<link rel="stylesheet" href="/css/panel.css">` - and only file types a page can need are served
-(html, css, js, json, txt, csv, xml, wasm, images, fonts, audio, video, pdf; the table is
-`WwwFiles.ContentTypes`). Everything else, and anything outside `www`, is a 404. `/` and `/status`
-stay with the built-in status page, so a `www/index.html` would never be reached; `/api/...` and
-`/swagger` keep their routes. Pages and assets are served with `Cache-Control: no-cache`, so a
-reload picks up your edits.
-
-Only the html files in the top level of `www` are listed on the status page; pages in a
-subdirectory are reachable by URL but not listed.
-
-Because the pages are served by the API itself, `fetch(location.origin + '/api/simvar/get', ...)`
-works from any machine, and no CORS setup is needed. `www/test.html` is a small example: a read
-(with optional polling), a write, and a multiple read.
-
-**Pages that ship with the server**
-
-- `www/test.html` - the example above.
-- `www/737views.html` - a view switcher for the PMDG 737. Buttons sit on a cockpit photo
-  (pilot, copilot, MCP, FMC, pedestal, throttle quadrant, overhead, tablet) and, on the second
-  page, on an aircraft picture for the external quickviews; the two quick outer views are also on
-  the cockpit page so you do not have to leave it. A click sends `CAMERA STATE`,
-  `CAMERA VIEW TYPE AND INDEX:0` and `:1` in one `setMultiple` call, then reads the view back once
-  after a short delay (retried a few times, never polled) and highlights the button that matches.
-  The page is one file plus the two pictures in `www/img`, which is where its `<img src="/img/...">`
-  finds them.
-- `www/737nav.html` - a radio panel for the 737: COM1, NAV1 and NAV2 with the act/stby lines, a
-  digit keypad, an ACT/STBY swap button and a zoom control for a small tablet. Frequencies are read
-  from the stream (`/api/simvar/register`, one second) and changed with MSFS radio key events
-  through `/api/event/send`: `COM_STBY_RADIO_SET_HZ`, `COM1_RADIO_SWAP` and the NAV1/NAV2
-  equivalents. The page never writes the COM/NAV simvars - MSFS does not allow it - so the number
-  you typed is confirmed a second later by the stream rather than by the page. Values coming back
-  in MHz, kHz, hertz or a BCD count are all normalised to hertz. The simvar and event names live in
-  the `RADIOS` table at the top of the file; add-ons that keep their own radio state (PMDG, Fenix,
-  iniBuilds) may need different names there.
-- `www/cdu.html` - the PMDG 737 CDU: the 24x14 character screen of the captain's or the first
-  officer's CDU, drawn from the `PMDG_NG3_CDU_0` / `PMDG_NG3_CDU_1` client data areas over
-  `/api/clientdata/register` (base64, ~5 frames a second, only when the screen changes). Colors,
-  the small-font and dimmed flags, reverse video and the `Powered` bool are rendered as the data
-  says; `CAPT`/`F/O` switches which CDU is shown and the two `A-`/`A+` buttons size the display for
-  a tablet. The screen is read-only so far - buttons come next.
-
-The list of views is the `VIEWS` table at the top of the page - one `state:type:index` triple per
-button. A view that lands somewhere else on your aircraft is a one-line change there.
-
-## WebSocket Streaming: `/api/simvar/register`
-
-Stream live updates for one or more SimVars over WebSocket.
+### WebSocket streaming of SimVars: `/api/simvar/register`
 
 - URL: `ws://{host}:{port}/api/simvar/register`
-- First client message (text): JSON array with the same schema as `POST /api/simvar/getMultiple`
-  - Example first message:
-  ```json
-  [
-    { "simVarName": "PLANE ALTITUDE", "unit": "feet" },
-    { "simVarName": "AIRSPEED INDICATED", "unit": "knots" }
-  ]
-  ```
-  - You can also use output aliases:
-  ```json
-  [
-    { "simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1|THR1", "unit": "" },
-    { "simVarName": "BRAKE PARKING INDICATOR|PRK_BRAKE", "unit": "" }
-  ]
-  ```
-- Server messages: JSON object with `{outputName: value}` for each requested SimVar
-- Default behavior: Server sends only when at least one value changed since the last sent snapshot (with small tolerance; `NaN` equals `NaN`)
+- First client message: a JSON array with the same schema as `getMultiple`, aliases allowed:
 
-### Query Parameters
+```json
+[{"simVarName": "PLANE ALTITUDE", "unit": "feet"},
+ {"simVarName": "GENERAL ENG THROTTLE LEVER POSITION:1|THR1", "unit": ""}]
+```
 
-- `interval` (int, optional): update interval in seconds. Default: `2`.
-- `alwaysUpdate` (bool, optional):
-  - `false` (default)   send only when values change.
-  - `true`   force send every interval even if values did not change.
+- Server messages: `{outputName: value}` for the values that changed.
+- Default behaviour: send only when at least one value changed (`NaN` counts as equal to `NaN`).
 
-### Example WebSocket URL
+Query parameters:
+
+- `interval` - update interval in **seconds**, default `2`.
+- `alwaysUpdate` - `true` sends every interval even when nothing changed.
 
 ```
 ws://localhost:5018/api/simvar/register?interval=1&alwaysUpdate=true
 ```
 
-### Simple Test Page
+`tools/ws-test.html` is a minimal client for it (`wscat -c "ws://localhost:5018/api/simvar/register?interval=1"`
+works too, paste the array as the first message), and `tools/get-test.html` is a page for trying
+`get`/`getMultiple` by hand, including `CLIENT:` fields.
 
-A basic test page is included at `tools/ws-test.html`. It connects to the WebSocket endpoint, sends a JSON array as the first message, and prints responses.
+### UDP streaming
 
-A plain GET test page for single/multiple SimVars and `CLIENT:` fields is at `tools/get-test.html`.
+With `udp.enabled: true` in the config, the server sends the configured variables to
+`udp.targetHost:udp.targetPort` every `udp.interval` milliseconds, as one JSON object per packet:
 
-`tools/pmdg-fields.html` browses the PMDG NG3 SDK fields: search by name or description, filter by
-section, and get the ready-to-paste `CLIENT:` variable for a field (offsets and types are computed
-from the SDK header with C alignment rules). Each row has a *Test* button that reads the field from
-the running API. The SDK header is embedded in the page, so it works offline; after a PMDG update,
-either pick the installed `PMDG_NG3_SDK.h` with the page's file input (parsed in the browser, nothing
-is uploaded) or refresh the checked-in copy with:
+```json
+{"THR1": 85.5, "PRK_BRAKE": 0, "PLANE ALTITUDE": 5234.2}
+```
+
+Values that could not be read are left out of the packet rather than sent as `0`. To watch what
+arrives, listen on the target port with `nc -ul 49002` (Linux/macOS) or `ncat -ul 49002` (Windows) -
+my motorized throttle quadrant does exactly that.
+
+## Status page
+
+`http://localhost:{port}/` (also `/status`) shows what the server is doing right now; the tray menu
+opens it, and a double click on the tray icon does the same. It re-reads `/api/stats` every two
+seconds, so it can be left open while you fly.
+
+It reports the server (path, port, URLs, log file, pid, runtime, uptime), the configuration it was
+loaded from, each stream (target, interval, variables, packets sent, last error), the SimConnect
+state with the client data areas seen so far, every variable that was looked up with its read and
+write counters, and one link per html page in the `www` directory.
+
+### Your own pages
+
+Drop html files into the `www` directory next to `MsfsApiServer.exe` (it is created at startup, and
+the repository's pages are copied there on build). Each page is served at its own path -
+`http://localhost:5018/views.html` - and listed on the status page under the name without its
+extension.
+
+Subdirectories work, so a page can bring its own assets (`<img src="/img/plane.jpg">`,
+`<link rel="stylesheet" href="/css/panel.css">`), and only file types a page can need are served
+(html, css, js, json, txt, csv, xml, wasm, images, fonts, audio, video, pdf). Everything else, and
+anything outside `www`, is a 404; `/`, `/status`, `/api/...` and `/swagger` keep their own routes,
+so a `www/index.html` would never be reached. Pages are served with `Cache-Control: no-cache`, so a
+reload picks up your edits. Only the html files in the top level are listed on the status page.
+
+Because the pages are served by the API itself, `fetch(location.origin + '/api/simvar/get', ...)`
+works from any machine without CORS setup.
+
+**Pages that ship with the server**
+
+- `www/test.html` - a small example: a read with optional polling, a write, and a multiple read.
+- `www/737views.html` - a view switcher for the PMDG 737. Buttons sit on a cockpit photo (pilot,
+  copilot, MCP, FMC, pedestal, throttle quadrant, overhead, tablet) and, on a second page, on an
+  aircraft picture for the external quickviews. A click sends `CAMERA STATE`,
+  `CAMERA VIEW TYPE AND INDEX:0` and `:1` in one `setMultiple` call, reads the view back once
+  shortly after (retried a few times, never polled) and highlights the matching button.
+- `www/737nav.html` - a COM/NAV radio panel with act/stby lines, a digit keypad, a swap button and
+  zoom for a small tablet. It reads `COM/NAV ACTIVE/STANDBY FREQUENCY:n` from the SimVar stream and
+  changes the radios with key events (`COM_STBY_RADIO_SET_HZ`, `COM1_RADIO_SWAP`, the NAV1/NAV2
+  equivalents); the number you typed is confirmed a second later by the stream, because MSFS does
+  not let a client write the COM/NAV simvars directly.
+- `www/cdu.html` - the PMDG 737 CDU: the screen of the captain's or the first officer's CDU as a
+  tablet-sized unit with working keys. The screen comes from the client data areas over
+  `/api/clientdata/register` (colours, the small-font and dimmed flags, reverse video and the
+  powered state as the data says); `CAPT`/`F/O` picks which CDU is shown, `A-`/`A+` sizes the unit,
+  and typing on a computer keyboard sends the matching key. The keys press the FMC through the
+  event endpoint described above - nothing was added to the API for them. A **log** button (or
+  `?debug=1`) shows what the socket did, which is the first thing to look at if the screen stops
+  updating; a dropped connection keeps the last screen visible and reconnects on its own.
+
+## Example: driving the MSFS views from a panel
+
+`CAMERA STATE` and `CAMERA VIEW TYPE AND INDEX:0`/`:1` are enough to place the camera exactly, and
+they are the reason `www/737views.html` exists. Concretely, for `state:type:index`:
+
+- `2:1:1` cockpit, pilot, close - `2:1:4` cockpit, pilot, copilot
+- `2:2:0` cockpit, instrument 01 (glareshield); on the PMDG 737 `2:2:2` is the FMC, `2:2:3` the
+  pedestal, `2:2:4` the throttle quadrant, `2:2:5` the overhead, `2:2:6` behind the overhead,
+  `2:2:8` the tablet
+- `3:0:0` external chase - `3:4:1` external quickview 02 (front), `3:4:0` left, `3:4:2` right,
+  `3:4:4` fly-by
 
 ```bash
-node tools/update-pmdg-fields.js "C:\...\Community\pmdg-aircraft-738\Documentation\SDK\PMDG_NG3_SDK.h"
+curl -X POST http://localhost:5018/api/simvar/setMultiple \
+  -H 'Content-Type: application/json' \
+  -d '[{"simVarName":"CAMERA STATE","unit":"","value":2},
+       {"simVarName":"CAMERA VIEW TYPE AND INDEX:0","unit":"","value":2},
+       {"simVarName":"CAMERA VIEW TYPE AND INDEX:1","unit":"","value":2}]'
 ```
 
-That page is why no PMDG field table is compiled into the server: the offset contract lives in the
-header, and regenerating it is a command, not a code change.
+## System requirements
 
-### CLI Test with wscat
+- Windows
+- Microsoft Flight Simulator 2020 or 2024, running on the same machine
+- The .NET 8 desktop and ASP.NET Core runtimes - or the self-contained release, which needs nothing
+  installed
 
-Use the `wscat` CLI to test from a terminal.
+## Working on the code
 
-- Install (Node.js required):
-
-```bash
-npm install -g wscat
-```
-
-- Connect, then paste a one-line JSON array as the first message:
-
-```bash
-wscat -c "ws://localhost:5018/api/simvar/register?interval=1&alwaysUpdate=false"
-# After connected, paste:
-# [{"simVarName":"PLANE ALTITUDE","unit":"feet"},{"simVarName":"AIRSPEED INDICATED","unit":"knots"}]
-```
-
-You should start seeing JSON snapshots streamed back at the chosen interval, subject to the `alwaysUpdate` setting.
-
-## UDP Streaming
-
-When enabled in the configuration file, the server streams SimVar values via UDP at the configured interval. This is useful for home cockpit hardware that expects UDP data feeds.
-
-**Configuration:**
-```yaml
-udp:
-  enabled: true
-  targetHost: "192.168.1.100"
-  targetPort: 49002
-  interval: 500  # milliseconds
-  variables:
-    - "GENERAL ENG THROTTLE LEVER POSITION:1|THR1"
-    - "BRAKE PARKING INDICATOR|PRK_BRAKE"
-    - "PLANE ALTITUDE"
-```
-
-**UDP output format:** JSON object `{"THR1": 85.5, "PRK_BRAKE": 0, "PLANE ALTITUDE": 5234.2}`
-
-**Testing UDP output:**
-```bash
-# Linux/Mac
-nc -ul 49002
-
-# Windows (with netcat installed)
-ncat -ul 49002
-```
-
-## Tests
-
-Reference parsing and client data decoding are covered by unit tests in `SimConnector.Tests`:
-
-```bash
-dotnet test SimConnector.Tests/SimConnector.Tests.csproj -c Release
-```
-
-They cover the SimVar name syntax (`NAME[unit]|alias`), the whole `CLIENT:` grammar (known areas,
-`@AREA_ID`, hex and decimal offsets, the type table, malformed references), the decoding rules
-(masking and sign extension for narrow types, float32 bit reinterpretation, two-word assembly of
-64-bit fields), the chunking and assembly of a byte range (the 253 chunks of a CDU screen, the
-short tail chunk, little-endian words) and the lookup counters behind the status page (per variable
-and per client data field, reads that returned no value, ordering). The SimConnect SDK has to be installed, because the
-tests assert against the `SIMCONNECT_CLIENTDATATYPE_*` values; the native `SimConnect.dll` is
-copied next to the test assembly automatically.
-
-## System Requirements
-
-- .NET 8.0 or later
-- Microsoft Flight Simulator (2020 or 2024)
-- SimConnect SDK
-
-## Example use - MSFS views
-- cockpit view: `{"simVarName": "CAMERA STATE", "value": 2}`
-- external view: `{"simVarName": "CAMERA STATE", "value": 3}`
-- FMS view (instrument view 3): `{"simVarName": "CAMERA VIEW TYPE AND INDEX:1", "value": 2}`
-
-Basically for `CAMERA STATE` : `CAMERA VIEW TYPE AND INDEX:0` : `CAMERA VIEW TYPE AND INDEX:1` we have:
-- 2:1:1 - cockpit, pilot, close
-- 2:1:4 - cockpit, pilot, copilot
-- 2:2:0 - cockpit, instrument, instrument 01 (close look at glareshield)
-- 2:2:2 - cockpit, instrument, instrument 03 (FMS view)
-- 3:0:0 - external, default
-- 3:4:1 - external, quickview, quickview 02 (front)
-
-On the PMDG 737 the instrument views are the ones `www/737views.html` uses: 2:2:0 MCP, 2:2:2 FMC,
-2:2:3 pedestal, 2:2:4 throttle quadrant, 2:2:5 overhead, 2:2:6 after overhead, 2:2:8 tablet. The
-quickviews that were checked are 3:4:0 from the left, 3:4:1 front, 3:4:2 from the right, 3:4:4 fly-by
-and 3:0:0 chase; 3:4:3 (behind) and 3:4:6 (below, for a gear look) are read off the same cycle and
-still need confirming.
+Prerequisites, how to run it from source, how to build a release, the tests and the notes behind
+the client data implementation are in [DEVELOPMENT.md](DEVELOPMENT.md).

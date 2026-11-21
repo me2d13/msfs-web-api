@@ -6,9 +6,15 @@
 <title>737 CDU - MSFS web API</title>
 <style>
   :root {
-    --bg: #101114;
-    --fs: 20px;
+    --bg: #0c0d11;
+    --fs: 20px;              /* screen character size; A-/A+ scale the whole unit from it */
+    --u: calc(var(--fs) * 1.75);       /* one letter or number key; A-/A+ scale the whole unit */
+    --key-h: calc(var(--fs) * 1.8);
     --screen: #05060a;
+    --case: #232733;         /* the panel the keys sit on */
+    --key: #333a48;
+    --key-hi: #3d4554;
+    --lsk: #14161c;
   }
   * { box-sizing: border-box; }
   body {
@@ -20,13 +26,13 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     padding: 12px 12px 24px;
   }
 
   .head {
     display: flex; align-items: center; gap: 8px;
-    width: 100%; max-width: 1100px; flex-wrap: wrap;
+    width: 100%; max-width: 900px; flex-wrap: wrap;
   }
   .head h1 { font-size: 1.05rem; margin: 0 8px 0 0; font-weight: 600; }
   .head a { color: inherit; opacity: .6; font-size: .85rem; text-decoration: none; }
@@ -52,45 +58,167 @@
   #state { font-size: .85rem; opacity: .75; }
   #state.err { color: #ff8b8b; opacity: 1; }
 
-  /* The CDU bezel: a dark housing around the 24x14 character display. */
-  .bezel {
-    background: linear-gradient(180deg, #43464a 0%, #323437 55%, #2a2c2f 100%);
-    border: 1px solid #55585c;
-    border-radius: 16px;
-    box-shadow: 0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08);
-    padding: 18px;
+  /* ---- the unit: screen with its line select keys, then the key panel ---- */
+  .unit {
+    background: linear-gradient(180deg, #2c303b 0%, #21242d 60%, #1b1e25 100%);
+    border: 1px solid #3a3f4c;
+    border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07);
+    padding: calc(var(--fs) * .55) calc(var(--fs) * .5);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--fs) * .55);
   }
 
+  .body { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: start; }
+  /* the line select keys sit in the margin, one per screen line that has a label */
+  .lsk-col {
+    display: grid;
+    grid-auto-rows: calc(var(--fs) * 1.28);
+    padding-top: calc(var(--fs) * .4 + 2px);   /* the screen's padding + border, so rows line up */
+    gap: 0;
+  }
+  .lsk-col.left { grid-column: 1; padding-right: calc(var(--fs) * .3); }
+  .lsk-col.right { grid-column: 3; padding-left: calc(var(--fs) * .3); }
+
+  .lsk {
+    position: relative;
+    width: calc(var(--fs) * 1.5);
+    height: calc(var(--fs) * .95);
+    align-self: center;
+    background: linear-gradient(180deg, var(--key-hi), #22262f);
+    border: 1px solid #101218;
+    border-radius: calc(var(--fs) * .18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 2px 3px rgba(0,0,0,.5);
+    padding: 0;
+    min-height: 0; min-width: 0;
+    cursor: pointer;
+  }
+  .lsk:active, .lsk.pressed { background: #191c23; box-shadow: inset 0 2px 5px rgba(0,0,0,.7); }
+  /* the white line the panel paints from each line select key to the display */
+  .lsk::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    height: 2px;
+    width: calc(var(--fs) * .82);
+    transform: translateY(-50%);
+    background: rgba(238, 241, 246, .72);
+    border-radius: 1px;
+  }
+  .lsk-col.left .lsk::after { left: 100%; }
+  .lsk-col.right .lsk::after { right: 100%; }
+
   .screen {
+    grid-column: 2;
     display: grid;
     grid-template-columns: repeat(24, 1fr);
+    /* The row is a little taller than the characters and they sit at its bottom, the way the
+       display in the aircraft does - a small-font glyph then drops onto the same baseline
+       instead of staying up at the top of the row. */
+    grid-auto-rows: calc(var(--fs) * 1.28);
     gap: 0;
     background: var(--screen);
-    border: 2px solid #1b1d22;
-    border-radius: 6px;
-    padding: 8px 10px;
+    border: 2px solid #14161c;
+    border-radius: 4px;
+    padding: calc(var(--fs) * .4) calc(var(--fs) * .5);
     font-family: 'Consolas', 'DejaVu Sans Mono', 'Courier New', monospace;
     font-size: var(--fs);
-    line-height: 1.15;
-    box-shadow: inset 0 0 26px rgba(120, 200, 255, .07), 0 0 22px rgba(120, 200, 255, .05);
-    /* Characters are drawn column by column from the data, the grid is filled row by row. */
+    line-height: 1;
+    box-shadow: inset 0 0 26px rgba(120, 200, 255, .07), 0 0 18px rgba(120, 200, 255, .05);
     user-select: none;
   }
   .screen.off { opacity: .35; }
+  .screen.stale { opacity: .55; }
 
+  /* The cell is the layout box and keeps the full font size as its strut, so every glyph of a row
+     shares one baseline; the character itself is the span inside it, which carries the size and
+     the flags. */
   .cell {
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
     white-space: pre;
     min-width: 1ch;
   }
-  .cell.small { font-size: .78em; }
-  .cell.dim { opacity: .5; }
-  .cell.rev { color: #05060a !important; }
+  .cell > .g { vertical-align: baseline; }
+  .cell > .g.small { font-size: .76em; }
+  .cell > .g.dim { opacity: .5; }
+  .cell > .g.rev { color: #05060a !important; }
 
-  @media (max-width: 760px) {
-    :root { --fs: 14px; }
-    .bezel { padding: 10px; }
+  /* ---- the key panel ---- */
+  .keypad {
+    background: var(--case);
+    border: 1px solid #101218;
+    border-radius: calc(var(--fs) * .5);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -2px 6px rgba(0,0,0,.35);
+    padding: calc(var(--fs) * .45);
+    /* One grid, 18 half columns by 8 rows, laid out like the panel on the aircraft: a function key
+       is three half columns wide and a letter or number key two, so the groups form one block and
+       EXEC ends up directly above the E key instead of the panel splitting into halves. */
+    display: grid;
+    grid-template-columns: repeat(18, calc(var(--u) / 2));
+    grid-auto-rows: var(--key-h);
+    gap: calc(var(--fs) * .18);
+    justify-content: center;
   }
+
+  .key {
+    height: var(--key-h);
+    background: linear-gradient(180deg, var(--key-hi) 0%, #2a2f3a 55%, #23272f 100%);
+    border: 1px solid #14161c;
+    border-radius: calc(var(--fs) * .28);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 2px 4px rgba(0,0,0,.45);
+    color: #eef1f6;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: calc(var(--fs) * .55);
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    white-space: pre-line;      /* INIT REF, DEP ARR, N1 LIMIT, PREV/NEXT PAGE are two lines */
+    line-height: 1.05;
+    padding: 0 2px;
+    min-height: 0; min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+  }
+  .key:hover { background: linear-gradient(180deg, #46506310 0%, #2f3542 60%, #262b34 100%); }
+  .key:active, .key.pressed {
+    background: #1d2129;
+    box-shadow: inset 0 3px 6px rgba(0,0,0,.65);
+    transform: translateY(1px);
+  }
+  /* the number keys are round on the panel */
+  .key.round {
+    border-radius: 50%;
+    width: var(--key-h);
+    aspect-ratio: 1 / 1;
+    justify-self: center;
+    align-self: center;
+  }
+  /* a key the panel has but this page does not wire (the brightness rocker) */
+  .key.unwired { cursor: default; }
+
+  /* the two boxes around E/N/S/W on the real keys */
+  .boxed { outline: 1px solid rgba(238,241,246,.75); outline-offset: -8px; }
+
+  #log {
+    width: 100%; max-width: 900px;
+    max-height: 30vh; overflow: auto;
+    background: #0b0c0f; border: 1px solid #2c2f36; border-radius: 10px;
+    padding: 8px 10px; margin: 0;
+    font-family: 'Consolas', 'DejaVu Sans Mono', monospace;
+    font-size: 12px; line-height: 1.35; color: #a9b4c4;
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  @media (max-width: 700px) { :root { --fs: 14px; } }
 </style>
 </head>
 <body>
@@ -100,14 +228,22 @@
     <button id="btnFo">F/O</button>
     <span id="state">connecting…</span>
     <span class="spacer"></span>
+    <button id="btnLog" title="connection log">log</button>
     <button id="btnSmaller" title="smaller">A−</button>
     <button id="btnBigger" title="bigger">A+</button>
     <a href="/">status</a>
   </div>
 
-  <div class="bezel">
-    <div class="screen off" id="screen"></div>
+  <div class="unit">
+    <div class="body">
+      <div class="lsk-col left" id="lskLeft"></div>
+      <div class="screen off" id="screen"></div>
+      <div class="lsk-col right" id="lskRight"></div>
+    </div>
+    <div class="keypad" id="keypad"></div>
   </div>
+
+  <pre id="log" hidden></pre>
 
 <script>
 (function () {
@@ -118,12 +254,33 @@
   const CELL_BYTES = 3;         // Symbol, Color, Flags
   const POWERED_OFFSET = COLS * ROWS * CELL_BYTES;   // 1008, the bool after the cells
   const RANGE_LENGTH = POWERED_OFFSET + 1;           // 1009 bytes for the whole screen
-  const INTERVAL_MS = 200;      // how often the server sends a changed screen
+  const INTERVAL_MS = 200;      // how often the server compares (and sends on change)
+  const RECONNECT_MAX_MS = 5000;
 
   // The two CDU data areas; the server knows these names, the ID is sent for clarity.
   const AREAS = {
-    capt: { name: 'PMDG_NG3_CDU_0', id: 0x4E473335, label: 'CAPT' },
-    fo:   { name: 'PMDG_NG3_CDU_1', id: 0x4E473336, label: 'F/O' },
+    capt: { name: 'PMDG_NG3_CDU_0', id: 0x4E473335, label: 'CAPT', side: 'left' },
+    fo:   { name: 'PMDG_NG3_CDU_1', id: 0x4E473336, label: 'F/O', side: 'right' },
+  };
+
+  // PMDG CDU keys, as their offset from THIRD_PARTY_EVENT_ID_MIN (0x11000) in PMDG_NG3_SDK.h:
+  // EVT_CDU_L_<key> = 0x11000 + left, EVT_CDU_R_<key> = 0x11000 + right. Taken from the SDK
+  // header, the same contract the field offsets come from.
+  const CDU_KEYS = {
+    L1: [534, 606], L2: [535, 607], L3: [536, 608], L4: [537, 609], L5: [538, 610], L6: [539, 611],
+    R1: [540, 612], R2: [541, 613], R3: [542, 614], R4: [543, 615], R5: [544, 616], R6: [545, 617],
+    INIT_REF: [546, 618], RTE: [547, 619], CLB: [548, 620], CRZ: [549, 621], DES: [550, 622],
+    MENU: [551, 623], LEGS: [552, 624], DEP_ARR: [553, 625], HOLD: [554, 626], PROG: [555, 627],
+    EXEC: [556, 628], N1_LIMIT: [557, 629], FIX: [558, 630], PREV_PAGE: [559, 631], NEXT_PAGE: [560, 632],
+    NUM1: [561, 633], NUM2: [562, 634], NUM3: [563, 635], NUM4: [564, 636], NUM5: [565, 637],
+    NUM6: [566, 638], NUM7: [567, 639], NUM8: [568, 640], NUM9: [569, 641], DOT: [570, 642],
+    NUM0: [571, 643], PLUS_MINUS: [572, 644],
+    A: [573, 645], B: [574, 646], C: [575, 647], D: [576, 648], E: [577, 649], F: [578, 650],
+    G: [579, 651], H: [580, 652], I: [581, 653], J: [582, 654], K: [583, 655], L: [584, 656],
+    M: [585, 657], N: [586, 658], O: [587, 659], P: [588, 660], Q: [589, 661], R: [590, 662],
+    S: [591, 663], T: [592, 664], U: [593, 665], V: [594, 666], W: [595, 667], X: [596, 668],
+    Y: [597, 669], Z: [598, 670],
+    SPACE: [599, 671], DEL: [600, 672], SLASH: [601, 673], CLR: [602, 674], BRITENESS: [605, 677],
   };
 
   // PMDG_NG3_CDU_COLOR_* values
@@ -139,47 +296,99 @@
   const FLAG_REVERSE = 0x02;
   const FLAG_UNUSED = 0x04;
 
-  // The SDK draws its own arrows for \xA1..\xA4; everything else is the ASCII code itself.
+  // The SDK documents \xA1..\xA4 (arrows) and calls the rest ASCII, but the CDU font is its own:
+  // above 0x7F a code is a glyph of that font, not the Latin-1 character with the same number.
+  // Codes below were read off a real screen; the debug log reports any other one it sees.
   const ARROWS = { 0xA1: '\u2190', 0xA2: '\u2192', 0xA3: '\u2191', 0xA4: '\u2193' };
+  const GLYPHS = {
+    0xB0: '\u00b0',  // degree, as in "---°F ---°C"
+    0xEA: '\u25A1',  // hollow box: a numeric field the FMC has no value for
+  };
+  const BOX = '\u25A1';
 
   const els = {
+    unit: document.querySelector('.unit'),
     screen: document.getElementById('screen'),
     state: document.getElementById('state'),
+    lskLeft: document.getElementById('lskLeft'),
+    lskRight: document.getElementById('lskRight'),
+    keypad: document.getElementById('keypad'),
     btnCapt: document.getElementById('btnCapt'),
     btnFo: document.getElementById('btnFo'),
+    btnLog: document.getElementById('btnLog'),
     btnSmaller: document.getElementById('btnSmaller'),
     btnBigger: document.getElementById('btnBigger'),
+    log: document.getElementById('log'),
   };
 
-  // --- screen -------------------------------------------------------------------------------
+  // --- log -----------------------------------------------------------------------------------
+  // Off by default; the log button or ?debug=1 turns it on. Everything also goes to the console.
+  const logLines = [];
+  let logVisible = /[?&]debug=1\b/.test(location.search);
+
+  function log(text, isError) {
+    const line = new Date().toISOString().substr(11, 12) + '  ' + text;
+    logLines.push(line);
+    if (logLines.length > 200) logLines.shift();
+    if (logVisible) renderLog();
+    if (isError) console.warn('cdu: ' + text);
+    else console.log('cdu: ' + text);
+  }
+
+  function renderLog() {
+    els.log.textContent = logLines.slice(-60).join('\n');
+    els.log.scrollTop = els.log.scrollHeight;
+  }
+
+  function setLogVisible(visible) {
+    logVisible = visible;
+    els.log.hidden = !visible;
+    els.btnLog.classList.toggle('active', visible);
+    if (visible) renderLog();
+  }
+  setLogVisible(logVisible);
+
+  // --- screen ---------------------------------------------------------------------------------
   // One span per cell, in display order (row by row). The data is column by column, so every
   // cell knows its own index in the data block.
-  const cellEls = [];
+  const glyphEls = [];
   const cellIndex = [];
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
-      const span = document.createElement('span');
-      span.className = 'cell';
-      span.textContent = ' ';
-      els.screen.appendChild(span);
-      cellEls.push(span);
+      const cell = document.createElement('span');
+      cell.className = 'cell';
+      const glyph = document.createElement('span');
+      glyph.className = 'g';
+      glyph.textContent = ' ';
+      cell.appendChild(glyph);
+      els.screen.appendChild(cell);
+      glyphEls.push(glyph);
       cellIndex.push(col * ROWS + row);
     }
   }
 
-  // Last rendered state per data index, so a frame only touches what changed.
   const shownSymbol = new Array(COLS * ROWS).fill(null);
   const shownStyle = new Array(COLS * ROWS).fill('');
+  const reportedGlyphs = {};
 
   function symbolOf(byte) {
     if (byte === 0) return ' ';
     if (ARROWS[byte]) return ARROWS[byte];
+    if (byte >= 32 && byte < 127) return String.fromCharCode(byte);
+    if (GLYPHS[byte]) return GLYPHS[byte];
     if (byte < 32 || byte === 127) return ' ';
-    return String.fromCharCode(byte);
+
+    // Unknown code of the CDU font: draw the "no value" box and name the code once, so it can be
+    // added to GLYPHS once we know what the real screen shows for it.
+    if (!reportedGlyphs[byte]) {
+      reportedGlyphs[byte] = true;
+      log('unknown CDU glyph code 0x' + byte.toString(16).toUpperCase() + ' - drawn as a box', true);
+    }
+    return BOX;
   }
 
   function render(bytes) {
-    for (let i = 0; i < cellEls.length; i++) {
+    for (let i = 0; i < glyphEls.length; i++) {
       const d = cellIndex[i];
       const symbol = symbolOf(bytes[d * CELL_BYTES]);
       const color = COLORS[bytes[d * CELL_BYTES + 1]] || COLORS[0];
@@ -188,36 +397,36 @@
       const style = color + '|' + (flags & 0x07);
       if (shownStyle[d] !== style) {
         shownStyle[d] = style;
-        const el = cellEls[i];
-        el.style.color = color;
-        el.classList.toggle('small', (flags & FLAG_SMALL_FONT) !== 0);
-        el.classList.toggle('dim', (flags & FLAG_UNUSED) !== 0);
-        el.classList.toggle('rev', (flags & FLAG_REVERSE) !== 0);
-        if (flags & FLAG_REVERSE) el.style.background = color;
-        else el.style.background = 'transparent';
+        const g = glyphEls[i];
+        g.style.color = color;
+        g.classList.toggle('small', (flags & FLAG_SMALL_FONT) !== 0);
+        g.classList.toggle('dim', (flags & FLAG_UNUSED) !== 0);
+        g.classList.toggle('rev', (flags & FLAG_REVERSE) !== 0);
+        g.style.background = (flags & FLAG_REVERSE) ? color : 'transparent';
       }
       if (shownSymbol[d] !== symbol) {
         shownSymbol[d] = symbol;
-        cellEls[i].textContent = symbol;
+        glyphEls[i].textContent = symbol;
       }
     }
 
     const powered = bytes[POWERED_OFFSET] !== 0;
+    els.screen.classList.remove('stale');
     els.screen.classList.toggle('off', !powered);
-    if (!powered) setState('display off');
-    else setState(AREA.label + ' \u00b7 live', false);
+    setState(powered ? (AREA.label + ' \u00b7 live') : 'display off');
   }
 
   function clearScreen() {
-    for (let i = 0; i < cellEls.length; i++) {
-      cellEls[i].textContent = ' ';
-      cellEls[i].style.color = COLORS[0];
-      cellEls[i].style.background = 'transparent';
-      cellEls[i].className = 'cell';
+    for (let i = 0; i < glyphEls.length; i++) {
+      glyphEls[i].textContent = ' ';
+      glyphEls[i].style.color = COLORS[0];
+      glyphEls[i].style.background = 'transparent';
+      glyphEls[i].className = 'g';
       shownSymbol[cellIndex[i]] = ' ';
       shownStyle[cellIndex[i]] = COLORS[0] + '|0';
     }
     els.screen.classList.add('off');
+    els.screen.classList.remove('stale');
   }
 
   function setState(text, isError) {
@@ -225,10 +434,177 @@
     els.state.classList.toggle('err', isError === true);
   }
 
-  // --- websocket ----------------------------------------------------------------------------
-  let ws = null;
-  let reconnectTimer = null;
+  // --- the keys -------------------------------------------------------------------------------
+  // A press is the standard ROTOR_BRAKE event with the PMDG action number as its value, which is
+  // what this API can already send ({name, value} to /api/event/send) - the CDU needs no endpoint
+  // of its own. The number is (SDK offset * 100) + 1 for a press and + 4 for a release; only CLR
+  // needs the release, the FMC acts on it. Same numbering MobiFlight's HubHop presets use, which is
+  // how they are written down here: 55101 is FMS Left MENU, i.e. offset 551.
+  function carrierValue(key, release) {
+    const offsets = CDU_KEYS[key];
+    if (!offsets) return null;
+    const offset = AREA.side === 'left' ? offsets[0] : offsets[1];
+    return offset * 100 + (release ? 4 : 1);
+  }
+
+  async function sendCarrier(value) {
+    try {
+      const response = await fetch('/api/event/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'ROTOR_BRAKE', value: value }),
+      });
+      if (!response.ok) {
+        log('key ' + value + ' refused: HTTP ' + response.status, true);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      log('key ' + value + ' failed: ' + err.message, true);
+      return false;
+    }
+  }
+
+  // No local echo: like the real unit, the screen is the confirmation, and it arrives over the
+  // socket we already have open.
+  async function press(key) {
+    const value = carrierValue(key);
+    if (value === null || value === undefined) { log('unknown key ' + key, true); return; }
+
+    const ok = await sendCarrier(value);
+    if (ok) log('pressed ' + key + ' -> ROTOR_BRAKE ' + value);
+
+    if (key === 'CLR') {
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await sendCarrier(carrierValue('CLR', true));
+      log('released CLR');
+    }
+  }
+
+  // --- build the unit --------------------------------------------------------------------------
+  function makeKey(label, key, extraClass) {
+    const button = document.createElement('button');
+    button.className = 'key' + (extraClass ? ' ' + extraClass : '');
+    if (key) {
+      button.dataset.key = key;
+    } else {
+      // a key that is on the panel but has nothing behind it in this page
+      button.classList.add('unwired');
+      button.setAttribute('aria-disabled', 'true');
+      button.title = 'not wired - the display brightness is set in the aircraft';
+    }
+    button.textContent = label;
+    return button;
+  }
+
+  // line select keys: L1..L6 on the left of the screen, R1..R6 on the right, each in the row of
+  // the label it belongs to (the screen's second, fourth, ... line)
+  [['lskLeft', 'L'], ['lskRight', 'R']].forEach(([id, side]) => {
+    for (let i = 1; i <= 6; i++) {
+      const key = side + i;
+      const button = document.createElement('button');
+      button.className = 'lsk';
+      button.dataset.key = key;
+      button.title = key + ' (line select)';
+      button.setAttribute('aria-label', key);
+      button.style.gridRow = String(i * 2 + 1);
+      els[id].appendChild(button);
+    }
+  });
+
+  // The panel, as positions in that grid: [row, first half column, span, label, key, extra class].
+  // Read off the aircraft's key panel, which is why EXEC sits at column 16 - the E key is under it.
+  const PANEL = [
+    [1, 1, 3, 'INIT\nREF', 'INIT_REF'], [1, 4, 3, 'RTE', 'RTE'], [1, 7, 3, 'CLB', 'CLB'],
+    [1, 10, 3, 'CRZ', 'CRZ'], [1, 13, 3, 'DES', 'DES'],
+    [2, 1, 3, 'MENU', 'MENU'], [2, 4, 3, 'LEGS', 'LEGS'], [2, 7, 3, 'DEP\nARR', 'DEP_ARR'],
+    [2, 10, 3, 'HOLD', 'HOLD'], [2, 13, 3, 'PROG', 'PROG'],
+    [1, 16, 3, '\u2212 BRT +', null],
+    [2, 16, 3, 'EXEC', 'EXEC'],
+    [3, 1, 3, 'N1\nLIMIT', 'N1_LIMIT'], [3, 4, 3, 'FIX', 'FIX'],
+    [4, 1, 3, 'PREV\nPAGE', 'PREV_PAGE'], [4, 4, 3, 'NEXT\nPAGE', 'NEXT_PAGE'],
+
+    [5, 1, 2, '1', 'NUM1', 'round'], [5, 3, 2, '2', 'NUM2', 'round'], [5, 5, 2, '3', 'NUM3', 'round'],
+    [6, 1, 2, '4', 'NUM4', 'round'], [6, 3, 2, '5', 'NUM5', 'round'], [6, 5, 2, '6', 'NUM6', 'round'],
+    [7, 1, 2, '7', 'NUM7', 'round'], [7, 3, 2, '8', 'NUM8', 'round'], [7, 5, 2, '9', 'NUM9', 'round'],
+    [8, 1, 2, '\u00b7', 'DOT', 'round'], [8, 3, 2, '0', 'NUM0', 'round'], [8, 5, 2, '+/\u2212', 'PLUS_MINUS', 'round'],
+
+    [3, 9, 2, 'A', 'A'], [3, 11, 2, 'B', 'B'], [3, 13, 2, 'C', 'C'], [3, 15, 2, 'D', 'D'], [3, 17, 2, 'E', 'E', 'boxed'],
+    [4, 9, 2, 'F', 'F'], [4, 11, 2, 'G', 'G'], [4, 13, 2, 'H', 'H'], [4, 15, 2, 'I', 'I'], [4, 17, 2, 'J', 'J'],
+    [5, 9, 2, 'K', 'K'], [5, 11, 2, 'L', 'L'], [5, 13, 2, 'M', 'M'], [5, 15, 2, 'N', 'N', 'boxed'], [5, 17, 2, 'O', 'O'],
+    [6, 9, 2, 'P', 'P'], [6, 11, 2, 'Q', 'Q'], [6, 13, 2, 'R', 'R'], [6, 15, 2, 'S', 'S', 'boxed'], [6, 17, 2, 'T', 'T'],
+    [7, 9, 2, 'U', 'U'], [7, 11, 2, 'V', 'V'], [7, 13, 2, 'W', 'W', 'boxed'], [7, 15, 2, 'X', 'X'], [7, 17, 2, 'Y', 'Y'],
+    [8, 9, 2, 'Z', 'Z'], [8, 11, 2, 'SP', 'SPACE'], [8, 13, 2, 'DEL', 'DEL'], [8, 15, 2, '/', 'SLASH'], [8, 17, 2, 'CLR', 'CLR'],
+  ];
+
+  PANEL.forEach(([row, col, span, label, key, extra]) => {
+    const button = makeKey(label, key, extra);
+    button.style.gridRow = String(row);
+    button.style.gridColumn = col + ' / span ' + span;
+    els.keypad.appendChild(button);
+  });
+
+  // The line select keys are beside the screen, not in #keypad, so clicks are caught on the unit
+  // as a whole - that is what made both LSK columns dead before.
+  els.unit.addEventListener('click', event => {
+    const button = event.target.closest('[data-key]');
+    if (!button || button.disabled) return;
+    button.classList.add('pressed');
+    setTimeout(() => button.classList.remove('pressed'), 140);
+    press(button.dataset.key);
+  });
+
+  // Typing on a computer keyboard sends the matching CDU key, so the page is usable without a
+  // touch screen. Letters, digits, dot and slash go straight through; Backspace is CLR, Delete is DEL.
+  const TYPED = {};
+  for (const key of Object.keys(CDU_KEYS)) {
+    if (/^[A-Z]$/.test(key)) TYPED[key] = key;
+  }
+  for (let n = 0; n <= 9; n++) TYPED[String(n)] = 'NUM' + n;
+  TYPED['.'] = 'DOT';
+  TYPED['/'] = 'SLASH';
+  TYPED[' '] = 'SPACE';
+  TYPED['Backspace'] = 'CLR';
+  TYPED['Delete'] = 'DEL';
+
+  document.addEventListener('keydown', event => {
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+    const key = TYPED[event.key.length === 1 ? event.key.toUpperCase() : event.key];
+    if (!key) return;
+    event.preventDefault();
+    press(key);
+  });
+
+  // --- connection ----------------------------------------------------------------------------
+  // One socket at a time, and every handler belongs to the socket it was made for: a socket that
+  // has been replaced (area switch, reconnect) must not be able to close its successor, which is
+  // what used to keep the page reconnecting forever every two seconds.
   let AREA = AREAS.capt;
+  let socket = null;
+  let reconnectTimer = null;
+  let reconnectDelay = 500;
+  let openedAt = 0;
+  let connectedAt = 0;
+  let frames = 0;
+
+  function closeSocket() {
+    if (!socket) return;
+    const s = socket;
+    socket = null;
+    s.onopen = s.onmessage = s.onclose = s.onerror = null;
+    try { s.close(); } catch (e) {}
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    const delay = reconnectDelay;
+    reconnectDelay = Math.min(RECONNECT_MAX_MS, reconnectDelay * 2);
+    log('reconnecting in ' + delay + ' ms');
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
 
   function base64ToBytes(data) {
     const binary = atob(data);
@@ -237,26 +613,61 @@
     return bytes;
   }
 
-  function connect() {
-    clearTimeout(reconnectTimer);
-    if (ws) {
-      try { ws.close(); } catch (e) {}
-      ws = null;
-    }
-    clearScreen();
-    setState('connecting…', false);
+  function handleMessage(raw) {
+    let msg;
+    try { msg = JSON.parse(raw); } catch (e) { log('unparsable message: ' + raw.slice(0, 120), true); return; }
+    if (!msg || typeof msg !== 'object') return;
 
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    try {
-      ws = new WebSocket(proto + '://' + location.host + '/api/clientdata/register');
-    } catch (err) {
-      setState('socket failed', true);
-      scheduleReconnect();
+    if (msg.error) {
+      els.screen.classList.add('off');
+      setState(msg.error, true);
+      log('server refused the range: ' + msg.error, true);
+      return;
+    }
+    if (!msg.data) {
+      els.screen.classList.add('off');
+      setState('no data - CDU broadcast on?', true);
       return;
     }
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
+    const bytes = base64ToBytes(msg.data);
+    if (bytes.length < RANGE_LENGTH) {
+      setState('short frame (' + bytes.length + ' bytes)', true);
+      log('short frame: ' + bytes.length + ' bytes, expected ' + RANGE_LENGTH, true);
+      return;
+    }
+    frames++;
+    render(bytes);
+  }
+
+  function connect() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    closeSocket();
+
+    openedAt = Date.now();
+    connectedAt = 0;
+    frames = 0;
+    setState('connecting…');
+    els.screen.classList.add('stale');
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = proto + '://' + location.host + '/api/clientdata/register';
+    let s;
+    try {
+      s = new WebSocket(url);
+    } catch (err) {
+      setState('socket failed', true);
+      log('new WebSocket threw: ' + err.message, true);
+      scheduleReconnect();
+      return;
+    }
+    socket = s;
+
+    s.onopen = () => {
+      if (socket !== s) return;
+      connectedAt = Date.now();
+      log('open after ' + (connectedAt - openedAt) + ' ms - asking for ' + AREA.name + ' 0..' + RANGE_LENGTH);
+      s.send(JSON.stringify({
         area: AREA.name,
         areaId: AREA.id,
         offset: 0,
@@ -265,37 +676,31 @@
       }));
     };
 
-    ws.onmessage = ev => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch (e) { return; }
-      if (!msg || typeof msg !== 'object') return;
-      if (msg.error) { setState(msg.error, true); return; }
-      if (!msg.data) {
-        clearScreen();
-        setState('no data - CDU broadcast on?', true);
-        return;
+    s.onmessage = ev => {
+      if (socket !== s) return;
+      if (frames === 0) {
+        reconnectDelay = 500;   // a stream that delivers frames is a healthy connection
+        log('first frame after ' + (Date.now() - connectedAt) + ' ms');
       }
-      const bytes = base64ToBytes(msg.data);
-      if (bytes.length < RANGE_LENGTH) {
-        setState('short frame (' + bytes.length + ')', true);
-        return;
-      }
-      render(bytes);
+      handleMessage(ev.data);
     };
 
-    ws.onclose = () => {
-      setState('disconnected', true);
+    s.onclose = ev => {
+      const age = connectedAt ? Date.now() - connectedAt : Date.now() - openedAt;
+      log('close code=' + ev.code + ' reason="' + (ev.reason || '') + '" clean=' + ev.wasClean +
+          ' after ' + age + ' ms, ' + frames + ' frame(s)', ev.code !== 1000 && ev.code !== 1005);
+      if (socket !== s) return;      // a socket we already replaced: its close is not ours to act on
+      socket = null;
+      els.screen.classList.add('stale');
+      setState('disconnected (code ' + ev.code + ')', true);
       scheduleReconnect();
     };
 
-    ws.onerror = () => {
-      try { ws.close(); } catch (e) {}
+    // No close() here: an error is always followed by a close event, which does the reconnect.
+    s.onerror = () => {
+      if (socket !== s) return;
+      log('socket error', true);
     };
-  }
-
-  function scheduleReconnect() {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(connect, 2000);
   }
 
   function selectArea(next) {
@@ -303,6 +708,8 @@
     AREA = next;
     els.btnCapt.classList.toggle('active', AREA === AREAS.capt);
     els.btnFo.classList.toggle('active', AREA === AREAS.fo);
+    log('switching to ' + AREA.label + ' (' + AREA.name + ')');
+    clearScreen();
     connect();
   }
 
@@ -320,6 +727,7 @@
   els.btnFo.addEventListener('click', () => selectArea(AREAS.fo));
   els.btnSmaller.addEventListener('click', () => applyZoom(zoom - 10));
   els.btnBigger.addEventListener('click', () => applyZoom(zoom + 10));
+  els.btnLog.addEventListener('click', () => setLogVisible(!logVisible));
 
   let stored = null;
   try { stored = parseInt(localStorage.getItem(ZOOM_KEY), 10); } catch (e) {}
@@ -327,6 +735,7 @@
 
   els.btnCapt.classList.add('active');
   clearScreen();
+  log('page loaded; ' + AREA.name + ' ' + RANGE_LENGTH + ' bytes');
   connect();
 })();
 </script>
