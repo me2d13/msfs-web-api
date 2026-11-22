@@ -7,9 +7,14 @@
 <style>
   :root {
     --bg: #0c0d11;
-    --fs: 20px;              /* screen character size; A-/A+ scale the whole unit from it */
+    --fs: 20px;              /* base CDU scale; A-/A+ scale the whole unit from it */
     --u: calc(var(--fs) * 1.75);       /* one letter or number key; A-/A+ scale the whole unit */
     --key-h: calc(var(--fs) * 1.8);
+    --lsk-col: calc(var(--fs) * 2.9);
+    --display-w: calc(var(--fs) * 14.4);
+    --screen-row: calc(var(--fs) * .73);
+    --lsk-link: calc(var(--fs) * 1.18);
+    --lsk-gap: calc(var(--fs) * .22);
     --screen: #05060a;
     --case: #232733;         /* the panel the keys sit on */
     --key: #333a48;
@@ -70,16 +75,23 @@
     gap: calc(var(--fs) * .55);
   }
 
-  .body { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: start; }
-  /* the line select keys sit in the margin, one per screen line that has a label */
+  .body {
+    display: grid;
+    grid-template-columns: var(--lsk-col) var(--display-w) var(--lsk-col);
+    justify-content: center;
+    align-items: start;
+  }
+  /* The six line-select keys align with the display's alternating label/data rows. */
   .lsk-col {
     display: grid;
-    grid-auto-rows: calc(var(--fs) * 1.28);
+    grid-auto-rows: var(--screen-row);
     padding-top: calc(var(--fs) * .4 + 2px);   /* the screen's padding + border, so rows line up */
     gap: 0;
   }
-  .lsk-col.left { grid-column: 1; padding-right: calc(var(--fs) * .3); }
-  .lsk-col.right { grid-column: 3; padding-left: calc(var(--fs) * .3); }
+  .lsk-col.left { grid-column: 1; }
+  .lsk-col.right { grid-column: 3; }
+  .lsk-col.left .lsk { justify-self: start; }
+  .lsk-col.right .lsk { justify-self: end; }
 
   .lsk {
     position: relative;
@@ -95,35 +107,45 @@
     cursor: pointer;
   }
   .lsk:active, .lsk.pressed { background: #191c23; box-shadow: inset 0 2px 5px rgba(0,0,0,.7); }
-  /* the white line the panel paints from each line select key to the display */
+  /* Each key has a centered white dash, separate from the longer bezel connector. */
+  .lsk::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--fs) * .75);
+    height: calc(var(--fs) * .12);
+    transform: translate(-50%, -50%);
+    background: rgba(238, 241, 246, .82);
+    border-radius: 1px;
+  }
   .lsk::after {
     content: '';
     position: absolute;
     top: 50%;
     height: 2px;
-    width: calc(var(--fs) * .82);
+    width: var(--lsk-link);
     transform: translateY(-50%);
     background: rgba(238, 241, 246, .72);
     border-radius: 1px;
   }
-  .lsk-col.left .lsk::after { left: 100%; }
-  .lsk-col.right .lsk::after { right: 100%; }
+  .lsk-col.left .lsk::after { left: calc(100% + var(--lsk-gap)); }
+  .lsk-col.right .lsk::after { right: calc(100% + var(--lsk-gap)); }
 
   .screen {
     grid-column: 2;
+    width: var(--display-w);
     display: grid;
     grid-template-columns: repeat(24, 1fr);
-    /* The row is a little taller than the characters and they sit at its bottom, the way the
-       display in the aircraft does - a small-font glyph then drops onto the same baseline
-       instead of staying up at the top of the row. */
-    grid-auto-rows: calc(var(--fs) * 1.28);
+    /* The compact pitch keeps the 24x14 display wide like the hardware CDU. */
+    grid-auto-rows: var(--screen-row);
     gap: 0;
     background: var(--screen);
     border: 2px solid #14161c;
     border-radius: 4px;
     padding: calc(var(--fs) * .4) calc(var(--fs) * .5);
     font-family: 'Consolas', 'DejaVu Sans Mono', 'Courier New', monospace;
-    font-size: var(--fs);
+    font-size: var(--screen-row);
     line-height: 1;
     box-shadow: inset 0 0 26px rgba(120, 200, 255, .07), 0 0 18px rgba(120, 200, 255, .05);
     user-select: none;
@@ -131,9 +153,8 @@
   .screen.off { opacity: .35; }
   .screen.stale { opacity: .55; }
 
-  /* The cell is the layout box and keeps the full font size as its strut, so every glyph of a row
-     shares one baseline; the character itself is the span inside it, which carries the size and
-     the flags. */
+  /* The cell owns reverse-video fill so neighboring highlighted glyphs form one continuous band;
+     the glyph span carries text color and flags while each row shares one baseline. */
   .cell {
     display: flex;
     flex-direction: column;
@@ -154,13 +175,14 @@
     border-radius: calc(var(--fs) * .5);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -2px 6px rgba(0,0,0,.35);
     padding: calc(var(--fs) * .45);
-    /* One grid, 18 half columns by 8 rows, laid out like the panel on the aircraft: a function key
-       is three half columns wide and a letter or number key two, so the groups form one block and
-       EXEC ends up directly above the E key instead of the panel splitting into halves. */
+    /* A spacer after row 2 leaves room for EXEC's recessed lamp above the shorter key. */
+    position: relative;
     display: grid;
     grid-template-columns: repeat(18, calc(var(--u) / 2));
+    grid-template-rows: var(--key-h) var(--key-h) calc(var(--fs) * .4) repeat(6, var(--key-h));
     grid-auto-rows: var(--key-h);
-    gap: calc(var(--fs) * .18);
+    column-gap: calc(var(--fs) * .18);
+    row-gap: calc(var(--fs) * .3);
     justify-content: center;
   }
 
@@ -188,6 +210,63 @@
     touch-action: manipulation;
     user-select: none;
   }
+  .key.brightness-key { height: calc(var(--key-h) * .8); align-self: start; }
+  /* A dark lens above EXEC can be lit later by toggling the .on class. */
+  .key.exec-key {
+    position: relative;
+    z-index: 1;
+    height: calc(var(--key-h) * .78);
+    align-self: end;
+  }
+  .exec-indicator {
+    position: absolute;
+    left: 50%;
+    top: calc(var(--fs) * -.9);
+    transform: translateX(-50%);
+    width: calc(var(--fs) * 2);
+    height: calc(var(--fs) * .5);
+    border: 1px solid #101217;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #171a20 0%, #090b0f 58%, #171b21 100%);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.12), 0 1px 2px rgba(0,0,0,.75);
+    pointer-events: none;
+  }
+  .exec-indicator.on {
+    background: radial-gradient(ellipse at 35% 30%, #ffffff, #edf1f5 60%, #aeb7c2);
+    box-shadow: 0 0 7px rgba(238,245,255,.8), inset 0 1px 1px rgba(255,255,255,.95);
+  }
+  /* Side annunciator windows; the active MSG legend lights white, not the whole panel. */
+  .side-indicator {
+    position: absolute;
+    z-index: 0;
+    width: calc(var(--fs) * .8);
+    height: calc(var(--fs) * 2.6);
+    border: 1px solid #141920;
+    border-radius: calc(var(--fs) * .12);
+    background: linear-gradient(180deg, #080b0f 0%, #030405 60%, #090d11 100%);
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.6);
+    pointer-events: none;
+  }
+  .side-indicator.msg {
+    top: 46%;
+    right: calc(var(--fs) * .4);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #aeb3bc;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: calc(var(--fs) * .5);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .side-indicator.msg span { visibility: hidden; }
+  .side-indicator.ofst { top: 64%; right: calc(var(--fs) * .4); }
+  .side-indicator.msg.on {
+    color: #fff;
+    text-shadow: 0 0 2px rgba(255,255,255,.35);
+  }
+  .side-indicator.msg.on span { visibility: visible; }
   .key:hover { background: linear-gradient(180deg, #46506310 0%, #2f3542 60%, #262b34 100%); }
   .key:active, .key.pressed {
     background: #1d2129;
@@ -240,7 +319,10 @@
       <div class="screen off" id="screen"></div>
       <div class="lsk-col right" id="lskRight"></div>
     </div>
-    <div class="keypad" id="keypad"></div>
+    <div class="keypad" id="keypad">
+      <div id="msgIndicator" class="side-indicator msg" aria-hidden="true"><span>M</span><span>S</span><span>G</span></div>
+      <div id="ofstIndicator" class="side-indicator ofst" aria-hidden="true"></div>
+    </div>
   </div>
 
   <pre id="log" hidden></pre>
@@ -402,7 +484,7 @@
         g.classList.toggle('small', (flags & FLAG_SMALL_FONT) !== 0);
         g.classList.toggle('dim', (flags & FLAG_UNUSED) !== 0);
         g.classList.toggle('rev', (flags & FLAG_REVERSE) !== 0);
-        g.style.background = (flags & FLAG_REVERSE) ? color : 'transparent';
+        g.parentElement.style.background = (flags & FLAG_REVERSE) ? color : 'transparent';
       }
       if (shownSymbol[d] !== symbol) {
         shownSymbol[d] = symbol;
@@ -420,7 +502,7 @@
     for (let i = 0; i < glyphEls.length; i++) {
       glyphEls[i].textContent = ' ';
       glyphEls[i].style.color = COLORS[0];
-      glyphEls[i].style.background = 'transparent';
+      glyphEls[i].parentElement.style.background = 'transparent';
       glyphEls[i].className = 'g';
       shownSymbol[cellIndex[i]] = ' ';
       shownStyle[cellIndex[i]] = COLORS[0] + '|0';
@@ -494,6 +576,14 @@
       button.title = 'not wired - the display brightness is set in the aircraft';
     }
     button.textContent = label;
+    if (key === 'EXEC') {
+      button.classList.add('exec-key');
+      const indicator = document.createElement('div');
+      indicator.id = 'execIndicator';
+      indicator.className = 'exec-indicator';
+      indicator.setAttribute('aria-hidden', 'true');
+      button.appendChild(indicator);
+    }
     return button;
   }
 
@@ -519,7 +609,7 @@
     [1, 10, 3, 'CRZ', 'CRZ'], [1, 13, 3, 'DES', 'DES'],
     [2, 1, 3, 'MENU', 'MENU'], [2, 4, 3, 'LEGS', 'LEGS'], [2, 7, 3, 'DEP\nARR', 'DEP_ARR'],
     [2, 10, 3, 'HOLD', 'HOLD'], [2, 13, 3, 'PROG', 'PROG'],
-    [1, 16, 3, '\u2212 BRT +', null],
+    [1, 16, 3, '\u2212 BRT +', null, 'brightness-key'],
     [2, 16, 3, 'EXEC', 'EXEC'],
     [3, 1, 3, 'N1\nLIMIT', 'N1_LIMIT'], [3, 4, 3, 'FIX', 'FIX'],
     [4, 1, 3, 'PREV\nPAGE', 'PREV_PAGE'], [4, 4, 3, 'NEXT\nPAGE', 'NEXT_PAGE'],
@@ -539,10 +629,15 @@
 
   PANEL.forEach(([row, col, span, label, key, extra]) => {
     const button = makeKey(label, key, extra);
-    button.style.gridRow = String(row);
-    button.style.gridColumn = col + ' / span ' + span;
+    const gridRow = row > 2 ? row + 1 : row;
+    button.style.gridRow = String(gridRow);
+    const gridCol = row >= 3 && col >= 9 ? col - 1 : col;
+    button.style.gridColumn = gridCol + ' / span ' + span;
     els.keypad.appendChild(button);
   });
+
+  const execIndicatorEl = document.getElementById('execIndicator');
+  const msgIndicatorEl = document.getElementById('msgIndicator');
 
   // The line select keys are beside the screen, not in #keypad, so clicks are caught on the unit
   // as a whole - that is what made both LSK columns dead before.
@@ -587,6 +682,20 @@
   let connectedAt = 0;
   let frames = 0;
 
+
+  // PMDG_NG3_SDK.h: CDU_annunEXEC[2] at 0x21F..220 and CDU_annunMSG[2] at 0x225..226.
+  // Array index 0 is CAPT and 1 is F/O; this is confirmed against the current live CDU state.
+  const ANNUNCIATOR_FIELDS = [
+    { simVarName: 'CLIENT:PMDG_NG3_Data:0x21F:bool|EXEC_CPT', unit: '' },
+    { simVarName: 'CLIENT:PMDG_NG3_Data:0x220:bool|EXEC_FO', unit: '' },
+    { simVarName: 'CLIENT:PMDG_NG3_Data:0x225:bool|MSG_CPT', unit: '' },
+    { simVarName: 'CLIENT:PMDG_NG3_Data:0x226:bool|MSG_FO', unit: '' },
+  ];
+  const ANNUNCIATOR_KEYS = ['EXEC_CPT', 'EXEC_FO', 'MSG_CPT', 'MSG_FO'];
+  const annunciatorValues = Object.fromEntries(ANNUNCIATOR_KEYS.map(key => [key, null]));
+  let annunciatorSocket = null;
+  let annunciatorReconnectTimer = null;
+  let annunciatorReconnectDelay = 500;
   function closeSocket() {
     if (!socket) return;
     const s = socket;
@@ -706,11 +815,94 @@
   function selectArea(next) {
     if (AREA === next) return;
     AREA = next;
+    applyAnnunciators();
     els.btnCapt.classList.toggle('active', AREA === AREAS.capt);
     els.btnFo.classList.toggle('active', AREA === AREAS.fo);
     log('switching to ' + AREA.label + ' (' + AREA.name + ')');
     clearScreen();
     connect();
+  }
+
+  // --- CDU annunciators -----------------------------------------------------------------------
+  function applyAnnunciators() {
+    const side = AREA.side === 'left' ? 'CPT' : 'FO';
+    if (execIndicatorEl) execIndicatorEl.classList.toggle('on', annunciatorValues['EXEC_' + side] === true);
+    if (msgIndicatorEl) msgIndicatorEl.classList.toggle('on', annunciatorValues['MSG_' + side] === true);
+  }
+
+  function clearAnnunciators() {
+    for (const key of ANNUNCIATOR_KEYS) annunciatorValues[key] = null;
+    applyAnnunciators();
+  }
+
+  function scheduleAnnunciatorReconnect() {
+    if (annunciatorReconnectTimer) return;
+    const delay = annunciatorReconnectDelay;
+    annunciatorReconnectDelay = Math.min(RECONNECT_MAX_MS, annunciatorReconnectDelay * 2);
+    log('reconnecting annunciator stream in ' + delay + ' ms');
+    annunciatorReconnectTimer = setTimeout(() => {
+      annunciatorReconnectTimer = null;
+      connectAnnunciators();
+    }, delay);
+  }
+
+  function connectAnnunciators() {
+    clearAnnunciators();
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let s;
+    try {
+      s = new WebSocket(proto + '://' + location.host + '/api/simvar/register?interval=1');
+    } catch (err) {
+      log('annunciator socket failed: ' + err.message, true);
+      scheduleAnnunciatorReconnect();
+      return;
+    }
+    annunciatorSocket = s;
+
+    s.onopen = () => {
+      if (annunciatorSocket !== s) return;
+      log('annunciator stream open; requesting PMDG EXEC and MSG states');
+      try {
+        s.send(JSON.stringify(ANNUNCIATOR_FIELDS));
+      } catch (err) {
+        log('annunciator request failed: ' + err.message, true);
+        s.close();
+      }
+    };
+
+    s.onmessage = event => {
+      if (annunciatorSocket !== s) return;
+      let values;
+      try { values = JSON.parse(event.data); }
+      catch (err) { log('invalid annunciator response: ' + err.message, true); return; }
+      if (!values || typeof values !== 'object' || Array.isArray(values)) return;
+
+      let changed = false;
+      for (const key of ANNUNCIATOR_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
+        const value = values[key];
+        const next = typeof value === 'boolean' ? value
+          : (typeof value === 'number' && Number.isFinite(value) ? value !== 0 : null);
+        if (annunciatorValues[key] !== next) {
+          annunciatorValues[key] = next;
+          changed = true;
+        }
+      }
+      annunciatorReconnectDelay = 500;
+      if (changed) applyAnnunciators();
+    };
+
+    s.onclose = event => {
+      if (annunciatorSocket !== s) return;
+      annunciatorSocket = null;
+      clearAnnunciators();
+      log('annunciator stream closed (code ' + event.code + ')', event.code !== 1000 && event.code !== 1005);
+      scheduleAnnunciatorReconnect();
+    };
+
+    s.onerror = () => {
+      if (annunciatorSocket === s) log('annunciator socket error', true);
+    };
   }
 
   // --- zoom ---------------------------------------------------------------------------------
@@ -737,6 +929,7 @@
   clearScreen();
   log('page loaded; ' + AREA.name + ' ' + RANGE_LENGTH + ' bytes');
   connect();
+  connectAnnunciators();
 })();
 </script>
 </body>
