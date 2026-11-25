@@ -11,31 +11,213 @@
     --btn: rgba(200, 200, 200, 0.45);
     --edge: #aaa;
     --active: #3f7d3f;
+    --segmented-bg: rgba(200, 200, 200, 0.2);
+    --segmented-hover: rgba(200, 200, 200, 0.35);
+    --zoom-bg: rgba(26, 26, 26, 0.92);
+    --zoom-border: #4c4f54;
+    --panel-zoom: 1;
   }
-  body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Roboto", system-ui, sans-serif; font-size: 16px; }
-  .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
-  .head h1 { font-size: 1.05rem; margin: 0; }
-  .head a { color: var(--fg); text-decoration: none; font-size: 0.85rem; opacity: 0.7; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Roboto", system-ui, sans-serif;
+    font-size: 16px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    flex-shrink: 0;
+    z-index: 10;
+    background: var(--bg);
+  }
+
+  .head h1 {
+    font-size: 1.05rem;
+    margin: 0;
+    flex: 1;
+    text-align: center;
+  }
+
+  .head a {
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 0.85rem;
+    opacity: 0.7;
+  }
+
   .head a:hover { opacity: 1; }
-  #read { margin-left: auto; font-size: 0.9rem; color: #b9c48a; }
 
-  .page-btn {
-    background: rgba(173, 247, 98, 0.995); border: 2px solid var(--edge); border-radius: 12px;
-    color: #242423; font-weight: 600; font-size: 14px; padding: 6px 14px; min-height: 36px; cursor: pointer;
+  /* Status dot: green = the sim view was read, amber = sent/pending, red = a
+     problem. The detail (current view or the error) lives in the hover hint. */
+  .status {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-left: 8px;
+    background: #8a8f98;
+    box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .35);
+    cursor: default;
   }
 
-  /* the picture is scaled to the screen, button positions are percentages of it */
-  .canvas { position: relative; margin: 8px auto; }
-  #inCanvas { width: min(800px, 96vw, calc((100vh - 90px) * 1.067)); }
-  #outCanvas { width: min(600px, 90vw, calc(100vh - 90px)); }
-  .canvas img { display: block; width: 100%; }
+  .status[data-state="ok"] { background: #3fae4a; }
+  .status[data-state="busy"] { background: #d8a83a; }
+  .status[data-state="err"] { background: #d9483b; }
+
+  .segmented {
+    display: flex;
+    background: var(--segmented-bg);
+    border: 2px solid var(--edge);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-left: auto;
+    margin-right: 8px;
+  }
+
+  .segmented button {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 6px 16px;
+    min-height: 36px;
+    cursor: pointer;
+    transition: background 200ms, color 200ms;
+  }
+
+  .segmented button:hover { background: var(--segmented-hover); }
+  .segmented button.active { background: var(--active); color: #fff; }
+
+  .zoom-ui {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    flex-shrink: 0;
+    background: var(--zoom-bg);
+    border: 1px solid var(--zoom-border);
+    border-radius: 999px;
+    user-select: none;
+  }
+
+  .zoom-ui button {
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    min-width: 32px;
+    height: 30px;
+    cursor: pointer;
+  }
+
+  .zoom-ui button:hover { background: #3a3d42; color: #fff; }
+  .zoom-ui button:disabled { opacity: .35; cursor: default; }
+  .zoom-ui button:disabled:hover { background: transparent; }
+
+  .zoom-ui .zoom-value {
+    min-width: 52px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: #9fb4d6;
+    text-align: center;
+  }
+
+  .zoom-ui .zoom-value:hover { color: #dbe8ff; }
+
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 8px;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  /* The stage reserves the ZOOMED footprint (set in JS) for scrolling; the
+     inner wrapper holds the UNZOOMED content and is what the transform scales,
+     so zoom never shrinks the content box below the panels (which used to spill
+     off the left edge) and >100% leaves a correctly scrollable area. */
+  .stage {
+    position: relative;
+  }
+
+  .stage-inner {
+    position: relative;
+    transform: scale(var(--panel-zoom));
+    transform-origin: 0 0;
+  }
+
+  .canvas {
+    position: relative;
+    margin: 0;
+  }
+
+  .canvas img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* BOTH mode. Portrait stacks the panels; a wide (landscape) display puts
+     them side by side. The direction is CSS-driven so it follows the viewport
+     without any JavaScript having to re-class the container. */
+  .both-container {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @media (orientation: landscape) {
+    .both-container {
+      flex-direction: row;
+      align-items: flex-start;
+      justify-content: center;
+    }
+  }
+
+  .panel-wrapper {
+    position: relative;
+    flex: 0 0 auto;
+  }
 
   .view-btn {
-    position: absolute; z-index: 10;
-    background: var(--btn); border: 2px solid var(--edge); border-radius: 14px;
-    color: var(--fg); font-weight: 600; font-size: 15px; padding: 8px 14px; min-height: 44px;
-    cursor: pointer; transition: background 200ms, transform 200ms;
+    position: absolute;
+    z-index: 10;
+    background: var(--btn);
+    border: 2px solid var(--edge);
+    border-radius: 14px;
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 15px;
+    padding: 8px 14px;
+    min-height: 44px;
+    cursor: pointer;
+    transition: background 200ms, transform 200ms;
+    white-space: nowrap;
   }
+
   .view-btn:hover { background: #fff; color: #1a1a1a; }
   .view-btn.active { background: var(--active); color: #fff; border-color: #2f5f2f; }
 
@@ -43,29 +225,81 @@
     .view-btn { font-size: 13px; padding: 6px 10px; min-height: 38px; }
   }
 
-  #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-         background: #ff6b6b; color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 14px; }
+  #msg {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff6b6b;
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    z-index: 100;
+  }
+
   [hidden] { display: none !important; }
+
+  @media (min-width: 600px) and (orientation: landscape) {
+    .head { padding: 4px 10px; }
+    .main { padding: 4px; }
+  }
+
+  /* The page title repeats the window title, so drop it when the header is
+     tight and let the switcher/status keep the room. */
+  @media (max-width: 600px) {
+    .head h1 { display: none; }
+  }
+
+  @media (max-width: 400px) {
+    .head { gap: 4px; padding: 4px 6px; }
+    .segmented { margin-left: auto; margin-right: 4px; }
+    .segmented button { padding: 6px 10px; font-size: 12px; }
+    .zoom-ui { padding: 2px; }
+    .zoom-ui button { min-width: 28px; height: 26px; font-size: 14px; }
+    .zoom-ui .zoom-value { min-width: 44px; font-size: 11px; }
+  }
 </style>
 </head>
 <body>
   <div class="head">
-    <h1>PMDG 737 views</h1>
-    <button id="btnIn" class="page-btn">IN</button>
-    <button id="btnOut" class="page-btn">OUT</button>
-    <a href="/">status</a>
-    <span id="read">view not read</span>
-  </div>
-
-  <div id="inFrame">
-    <div class="canvas" id="inCanvas">
-      <img src="/img/cockpit-m.jpg" alt="737 cockpit">
+    <div class="zoom-ui" role="group" aria-label="Panel zoom">
+      <button id="zoomOut" type="button" title="Zoom out">&#8722;</button>
+      <button id="zoomValue" class="zoom-value" type="button" title="Reset to 100%">100%</button>
+      <button id="zoomIn" type="button" title="Zoom in">+</button>
     </div>
+    <h1>PMDG 737 views</h1>
+    <div class="segmented" role="group" aria-label="View category">
+      <button id="btnIn" class="active" type="button">IN</button>
+      <button id="btnOut" type="button">OUT</button>
+      <button id="btnBoth" type="button">BOTH</button>
+    </div>
+    <a href="/">status</a>
+    <span id="read" class="status" data-state="busy" title="view not read" aria-label="view not read"></span>
   </div>
 
-  <div id="outFrame" hidden>
-    <div class="canvas" id="outCanvas">
-      <img src="/img/plane-4002.svg" alt="aircraft">
+  <div class="main" id="main">
+    <div class="stage" id="stage">
+      <div class="stage-inner" id="stageInner">
+        <!-- Single panel mode (IN or OUT) -->
+        <div class="canvas" id="canvas">
+          <img id="canvasImg" src="/img/cockpit-m.jpg" alt="737 cockpit">
+        </div>
+
+        <!-- BOTH mode -->
+        <div class="both-container" id="bothContainer" hidden>
+          <div class="panel-wrapper in-panel">
+            <div class="canvas" id="inCanvas">
+              <img id="inCanvasImg" src="/img/cockpit-m.jpg" alt="737 cockpit">
+            </div>
+          </div>
+          <div class="panel-wrapper out-panel">
+            <div class="canvas" id="outCanvas">
+              <img id="outCanvasImg" src="/img/plane-4002.svg" alt="aircraft">
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -82,7 +316,7 @@
 // worked on this aircraft in the fs-web-panels switcher. If a button lands on the
 // wrong panel, change its triple here.
 const VIEWS = [
-  // name, CAMERA STATE, view type, view index, panel, position on the picture
+  // IN panel (cockpit) - removed Fly by and Chase (use BOTH page for outer views)
   { name: 'Pilot',          state: 2, type: 1, index: 1, reset: true, panel: 'in',  pos: 'top:29%;left:42%;transform:translateX(-50%)' },
   { name: 'Copilot',        state: 2, type: 1, index: 4, reset: true, panel: 'in',  pos: 'top:29%;left:58%;transform:translateX(-50%)' },
   { name: 'MCP',            state: 2, type: 2, index: 0, panel: 'in',  pos: 'top:43%;left:50%;transform:translateX(-50%)' },
@@ -92,17 +326,12 @@ const VIEWS = [
   { name: 'Overhead',       state: 2, type: 2, index: 5, panel: 'in',  pos: 'top:13%;left:50%;transform:translateX(-50%)' },
   { name: 'After overhead', state: 2, type: 2, index: 6, panel: 'in',  pos: 'top:0;left:50%;transform:translateX(-50%)' },
   { name: 'Tablet',         state: 2, type: 2, index: 8, panel: 'in',  pos: 'top:47%;left:2%' },
-  // quick outer views, kept on the cockpit page so the tablet does not have to
-  // switch to the OUT page to look at the aircraft
-  { name: 'Fly by',         state: 3, type: 4, index: 4, panel: 'in',  pos: 'bottom:1%;left:1%' },
-  { name: 'Chase',          state: 3, type: 0, index: 0, panel: 'in',  pos: 'bottom:1%;right:1%' },
 
-  { name: 'Front',          state: 3, type: 4, index: 1, panel: 'out', pos: 'top:-2%;left:50%;transform:translateX(-50%)' },
-  { name: 'From left',      state: 3, type: 4, index: 0, panel: 'out', pos: 'top:31%;left:5%' },
-  { name: 'From right',     state: 3, type: 4, index: 2, panel: 'out', pos: 'top:31%;right:7%' },
-  { name: 'Back',           state: 3, type: 4, index: 3, panel: 'out', pos: 'bottom:0;left:50%;transform:translateX(-50%)' },
-  { name: 'Gear',           state: 3, type: 4, index: 6, panel: 'out', pos: 'bottom:28%;left:55%;transform:translateX(-50%)' },
-  { name: 'Fly by',         state: 3, type: 4, index: 4, panel: 'out', pos: 'top:0;left:20%;transform:translateX(-50%)' },
+  // OUT panel (external) - removed Fly by and Gear; moved Front closer to center
+  { name: 'Front',          state: 3, type: 4, index: 1, panel: 'out', pos: 'top:8%;left:50%;transform:translateX(-50%)' },
+  { name: 'Top',            state: 3, type: 4, index: 3, panel: 'out', pos: 'top:40%;left:50%;transform:translateX(-50%)' },
+  { name: 'From left',      state: 3, type: 4, index: 0, panel: 'out', pos: 'top:31%;left:12%' },
+  { name: 'From right',     state: 3, type: 4, index: 2, panel: 'out', pos: 'top:31%;right:12%' },
   { name: 'Chase',          state: 3, type: 0, index: 0, panel: 'out', pos: 'top:0;right:4%' }
 ];
 
@@ -112,9 +341,121 @@ const READ_VARS = [
   { simVarName: 'CAMERA VIEW TYPE AND INDEX:1|VI' }
 ];
 
+const PANEL_IMAGES = {
+  in: '/img/cockpit-m.jpg',
+  out: '/img/plane-4002.svg'
+};
+
+const PANEL_ALTS = {
+  in: '737 cockpit',
+  out: 'aircraft'
+};
+
+let currentMode = 'in';
 const buttons = [];
 const readEl = document.getElementById('read');
 const msgEl = document.getElementById('msg');
+const main = document.getElementById('main');
+const stage = document.getElementById('stage');
+const stageInner = document.getElementById('stageInner');
+const canvas = document.getElementById('canvas');
+const canvasImg = document.getElementById('canvasImg');
+const bothContainer = document.getElementById('bothContainer');
+const inCanvas = document.getElementById('inCanvas');
+const inCanvasImg = document.getElementById('inCanvasImg');
+const outCanvas = document.getElementById('outCanvas');
+const outCanvasImg = document.getElementById('outCanvasImg');
+const btnIn = document.getElementById('btnIn');
+const btnOut = document.getElementById('btnOut');
+const btnBoth = document.getElementById('btnBoth');
+const zoomOutBtn = document.getElementById('zoomOut');
+const zoomInBtn = document.getElementById('zoomIn');
+const zoomValueBtn = document.getElementById('zoomValue');
+
+const ZOOM_KEY = 'msfsapi.737views.zoom';
+const ZOOM_MIN = 50;
+const ZOOM_MAX = 200;
+const ZOOM_STEP = 10;
+let zoom = 100;
+
+// Keep in step with the CSS that decides whether BOTH mode stacks or sits
+// side by side: portrait = stacked, landscape = side by side.
+const portraitQuery = window.matchMedia('(orientation: portrait)');
+function isPortrait() { return portraitQuery.matches; }
+
+function clampZoom(v) {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(v / ZOOM_STEP) * ZOOM_STEP));
+}
+
+function loadZoom() {
+  try {
+    const v = parseInt(localStorage.getItem(ZOOM_KEY), 10);
+    return Number.isFinite(v) ? v : 100;
+  } catch (e) {
+    return 100;
+  }
+}
+
+const MODE_KEY = 'msfsapi.737views.mode';
+const MODES = ['in', 'out', 'both'];
+
+function loadMode() {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return MODES.indexOf(m) >= 0 ? m : 'in';
+  } catch (e) {
+    return 'in';
+  }
+}
+
+function saveMode(mode) {
+  try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
+}
+
+function applyZoom(next, save) {
+  zoom = clampZoom(next);
+  document.documentElement.style.setProperty('--panel-zoom', String(zoom / 100));
+  zoomValueBtn.textContent = zoom + '%';
+  zoomOutBtn.disabled = zoom <= ZOOM_MIN;
+  zoomInBtn.disabled = zoom >= ZOOM_MAX;
+  updateStage();
+  if (save) {
+    try { localStorage.setItem(ZOOM_KEY, String(zoom)); } catch (e) {}
+  }
+}
+
+function updateStage() {
+  const z = zoom / 100;
+  let contentWidth, contentHeight;
+
+  if (currentMode === 'both') {
+    // Measure the panels themselves (offsetWidth ignores the stage's scale),
+    // not the container: its width is 100% of the stage, so reading it back
+    // would feed the stage its own size and drift on every call.
+    const gap = 12;
+    const inW = inCanvas.offsetWidth, inH = inCanvas.offsetHeight;
+    const outW = outCanvas.offsetWidth, outH = outCanvas.offsetHeight;
+    if (isPortrait()) {
+      contentWidth = Math.max(inW, outW);
+      contentHeight = inH + outH + gap;
+    } else {
+      contentWidth = inW + outW + gap;
+      contentHeight = Math.max(inH, outH);
+    }
+  } else {
+    contentWidth = canvas.offsetWidth;
+    contentHeight = canvas.offsetHeight;
+  }
+
+  // Inner wrapper holds the content at its real (unscaled) size and carries the
+  // CSS transform; the stage reserves the scaled footprint for the scroll area.
+  // This keeps zoom linear and stops the centred panels from spilling off the
+  // left edge below 100% (the scroll area cannot reach the negative X side).
+  stageInner.style.width = contentWidth + 'px';
+  stageInner.style.height = contentHeight + 'px';
+  stage.style.width = (contentWidth * z) + 'px';
+  stage.style.height = (contentHeight * z) + 'px';
+}
 
 function post(path, body) {
   return fetch(location.origin + path, {
@@ -141,8 +482,6 @@ function describe(view) {
   return view.state + ':' + view.type + ':' + view.index;
 }
 
-// the same view can sit on both panels (Fly by, Chase), so every button whose
-// state:type:index matches gets the highlight
 function markActive(view) {
   buttons.forEach(function (entry) {
     const same = entry.view.state === view.state && entry.view.type === view.type && entry.view.index === view.index;
@@ -151,21 +490,31 @@ function markActive(view) {
   });
 }
 
-// One delayed read after a switch, retried a few times; no polling loop.
+function setRead(state, hint) {
+  readEl.dataset.state = state;
+  if (hint) {
+    readEl.title = hint;
+    readEl.setAttribute('aria-label', hint);
+  } else {
+    readEl.removeAttribute('title');
+    readEl.removeAttribute('aria-label');
+  }
+}
+
 function readView(attempt) {
   setTimeout(function () {
     post('/api/simvar/getMultiple', READ_VARS).then(function (data) {
       const state = num(data.CS), type = num(data.VT), index = num(data.VI);
       if (state === null) {
         if (attempt < 2) { readView(attempt + 1); return; }
-        readEl.textContent = 'sim does not report the camera view';
+        setRead('err', 'sim does not report the camera view');
         return;
       }
-      readEl.textContent = 'current view ' + state + ':' + type + ':' + index;
+      setRead('ok', 'current view ' + state + ':' + type + ':' + index);
       const match = VIEWS.find(function (v) { return v.state === state && v.type === type && v.index === index; });
       if (match) markActive(match);
     }).catch(function (error) {
-      readEl.textContent = 'view not read: ' + error.message;
+      setRead('err', 'view not read: ' + error.message);
     });
   }, 700 + attempt * 700);
 }
@@ -179,7 +528,7 @@ function switchView(view) {
   if (view.reset) items.push({ simVarName: 'CAMERA REQUEST ACTION', value: 1 });
 
   post('/api/simvar/setMultiple', items).then(function () {
-    readEl.textContent = 'sent ' + describe(view);
+    setRead('busy', 'sent ' + describe(view));
     markActive(view);
     readView(0);
   }).catch(function (error) {
@@ -187,8 +536,18 @@ function switchView(view) {
   });
 }
 
-function addButtons(containerId, panel) {
-  const container = document.getElementById(containerId);
+function clearButtons(targetCanvas) {
+  targetCanvas.querySelectorAll('.view-btn').forEach(function (el) {
+    for (let i = buttons.length - 1; i >= 0; i--) {
+      if (buttons[i].el === el) buttons.splice(i, 1);
+    }
+    el.remove();
+  });
+}
+
+function renderButtons(targetCanvas, panel) {
+  clearButtons(targetCanvas);
+
   VIEWS.filter(function (view) { return view.panel === panel; }).forEach(function (view) {
     const button = document.createElement('button');
     button.className = 'view-btn';
@@ -196,20 +555,183 @@ function addButtons(containerId, panel) {
     button.textContent = view.name;
     button.title = describe(view) + (view.reset ? ' + reset' : '');
     button.addEventListener('click', function () { switchView(view); });
-    container.appendChild(button);
+    targetCanvas.appendChild(button);
     buttons.push({ el: button, view: view });
   });
 }
 
-addButtons('inCanvas', 'in');
-addButtons('outCanvas', 'out');
-
-function showPanel(inPanel) {
-  document.getElementById('inFrame').hidden = !inPanel;
-  document.getElementById('outFrame').hidden = inPanel;
+// Wait for image to have valid dimensions
+function waitForImage(img) {
+  return new Promise(function (resolve) {
+    if (img.complete && img.naturalWidth > 0) {
+      resolve();
+      return;
+    }
+    img.onload = function () { resolve(); };
+    img.onerror = function () { resolve(); }; // resolve anyway to avoid deadlock
+  });
 }
-document.getElementById('btnIn').addEventListener('click', function () { showPanel(true); });
-document.getElementById('btnOut').addEventListener('click', function () { showPanel(false); });
+
+async function sizeAndRenderSingle(panel) {
+  const img = panel === 'in' ? canvasImg : canvasImg; // same element, src already set
+  await waitForImage(img);
+
+  const mainRect = main.getBoundingClientRect();
+  const availW = mainRect.width;
+  const availH = mainRect.height;
+
+  const natW = img.naturalWidth || img.width;
+  const natH = img.naturalHeight || img.height;
+
+  if (!natW || !natH) {
+    // Fallback: use CSS to fit
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+  } else {
+    const scale = Math.min(availW / natW, availH / natH);
+    const dispW = Math.floor(natW * scale);
+    const dispH = Math.floor(natH * scale);
+    canvas.style.width = dispW + 'px';
+    canvas.style.height = dispH + 'px';
+  }
+
+  renderButtons(canvas, panel);
+  updateStage();
+  readView(0);
+}
+
+async function sizeAndRenderBoth() {
+  await Promise.all([waitForImage(inCanvasImg), waitForImage(outCanvasImg)]);
+
+  const mainRect = main.getBoundingClientRect();
+  const availW = mainRect.width;
+  const availH = mainRect.height;
+  const gap = 12;
+
+  const inNatW = inCanvasImg.naturalWidth || inCanvasImg.width;
+  const inNatH = inCanvasImg.naturalHeight || inCanvasImg.height;
+  const outNatW = outCanvasImg.naturalWidth || outCanvasImg.width;
+  const outNatH = outCanvasImg.naturalHeight || outCanvasImg.height;
+
+  const portrait = isPortrait();
+
+  if (portrait) {
+    const inAvailH = Math.floor(availH * 0.65);
+    const outAvailH = Math.floor(availH * 0.35);
+
+    if (inNatW && inNatH) {
+      const inScale = Math.min(availW / inNatW, inAvailH / inNatH);
+      inCanvas.style.width = Math.floor(inNatW * inScale) + 'px';
+      inCanvas.style.height = Math.floor(inNatH * inScale) + 'px';
+    } else {
+      inCanvas.style.width = '100%';
+      inCanvas.style.height = 'auto';
+    }
+
+    if (outNatW && outNatH) {
+      const outScale = Math.min(availW / outNatW, outAvailH / outNatH);
+      outCanvas.style.width = Math.floor(outNatW * outScale) + 'px';
+      outCanvas.style.height = Math.floor(outNatH * outScale) + 'px';
+    } else {
+      outCanvas.style.width = '100%';
+      outCanvas.style.height = 'auto';
+    }
+  } else {
+    const inAvailW = Math.floor(availW * 0.65) - gap/2;
+    const outAvailW = Math.floor(availW * 0.35) - gap/2;
+
+    if (inNatW && inNatH) {
+      const inScale = Math.min(inAvailW / inNatW, availH / inNatH);
+      inCanvas.style.width = Math.floor(inNatW * inScale) + 'px';
+      inCanvas.style.height = Math.floor(inNatH * inScale) + 'px';
+    } else {
+      inCanvas.style.width = '100%';
+      inCanvas.style.height = 'auto';
+    }
+
+    if (outNatW && outNatH) {
+      const outScale = Math.min(outAvailW / outNatW, availH / outNatH);
+      outCanvas.style.width = Math.floor(outNatW * outScale) + 'px';
+      outCanvas.style.height = Math.floor(outNatH * outScale) + 'px';
+    } else {
+      outCanvas.style.width = '100%';
+      outCanvas.style.height = 'auto';
+    }
+  }
+
+  renderButtons(inCanvas, 'in');
+  renderButtons(outCanvas, 'out');
+  updateStage();
+  readView(0);
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  saveMode(mode);
+
+  btnIn.classList.toggle('active', mode === 'in');
+  btnOut.classList.toggle('active', mode === 'out');
+  btnBoth.classList.toggle('active', mode === 'both');
+
+  const isBoth = mode === 'both';
+  canvas.hidden = isBoth;
+  bothContainer.hidden = !isBoth;
+
+  if (isBoth) {
+    clearButtons(canvas);
+    sizeAndRenderBoth();
+  } else {
+    clearButtons(inCanvas);
+    clearButtons(outCanvas);
+    // Update image source if needed
+    if (canvasImg.getAttribute('src') !== PANEL_IMAGES[mode]) {
+      canvasImg.src = PANEL_IMAGES[mode];
+      canvasImg.alt = PANEL_ALTS[mode];
+    }
+    sizeAndRenderSingle(mode);
+  }
+}
+
+function init() {
+  zoom = loadZoom();
+  applyZoom(zoom, false);
+
+  btnIn.addEventListener('click', function () { setMode('in'); });
+  btnOut.addEventListener('click', function () { setMode('out'); });
+  btnBoth.addEventListener('click', function () { setMode('both'); });
+
+  zoomOutBtn.addEventListener('click', function () { applyZoom(zoom - ZOOM_STEP, true); });
+  zoomInBtn.addEventListener('click', function () { applyZoom(zoom + ZOOM_STEP, true); });
+  zoomValueBtn.addEventListener('click', function () { applyZoom(100, true); });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === '+' || e.key === '=') { applyZoom(zoom + ZOOM_STEP, true); }
+    else if (e.key === '-') { applyZoom(zoom - ZOOM_STEP, true); }
+    else if (e.key === '0') { applyZoom(100, true); }
+  });
+
+  let resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      if (currentMode === 'both') {
+        sizeAndRenderBoth();
+      } else {
+        sizeAndRenderSingle(currentMode);
+      }
+    }, 100);
+  });
+
+  // Initial load: restore the last mode and zoom
+  setMode(loadMode());
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
 </script>
 </body>
 </html>
