@@ -39,8 +39,7 @@ class Program
             {
                 var dir = Path.GetDirectoryName(logFilePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                // Recreate on start (truncate), keep after app exits
-                using (File.Create(logFilePath)) { }
+                // The logger appends across starts and rotates bounded archives by size.
 
                 // Route all ILogger<T> to file (and Debug for dev); ignore failures silently
                 builder.Logging.ClearProviders();
@@ -76,6 +75,11 @@ class Program
         logger.LogInformation("Configuration: {ConfigSummary}", configResult.Diagnostics.GetSummary());
         logger.LogInformation("Log level: {LogLevel}", logLevel);
         logger.LogInformation("Debug enabled: {Enabled}", logger.IsEnabled(LogLevel.Debug));
+        logger.LogInformation(
+            "File log path: {LogPath}; rollover at {MaxMiB} MiB, keeping {ArchiveCount} archives",
+            logFilePath,
+            SimpleFileLoggerProvider.DefaultMaxFileBytes / (1024 * 1024),
+            SimpleFileLoggerProvider.DefaultArchiveCount);
         logger.LogDebug("Debug logging confirmed active at level {Level}", logLevel);
 
         // Start UDP streaming if enabled in config

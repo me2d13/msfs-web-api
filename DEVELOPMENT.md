@@ -45,8 +45,10 @@ connection monitor keeps retrying in the background, so the server can be starte
 
 The `www` directory is copied next to the output on build, and that copy - not the one in the
 repository - is what the running server serves, so a page edit needs a rebuild (or a copy) to show
-up. Debug logging (`--logLevel Debug`) is worth turning on while working on the SimConnect side: it
-logs every lookup, and the client data subscriptions when they are set up.
+up. The file logger appends across restarts and rolls at 20 MiB, retaining five numbered archives.
+At `Debug`, connection/event and client-data subscription details are logged; per-read SimVar
+request/response traffic is `Trace` to avoid flooding the file. Use `--logLevel Trace` when
+investigating individual values.
 
 ## Building a release
 
