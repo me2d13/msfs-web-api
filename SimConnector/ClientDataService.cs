@@ -92,10 +92,6 @@ namespace SimConnector
             _logger = logger;
 
             _connection.OnRecvClientData += OnRecvClientData;
-            _connection.OnRecvException += (sender, data) =>
-            {
-                _logger.LogWarning("SimConnect exception while working with client data: {ExceptionId}", data.dwException);
-            };
             _connection.OnDisconnected += () =>
             {
                 // Definitions, subscriptions and name mappings live on the SimConnect

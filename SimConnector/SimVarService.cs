@@ -86,7 +86,7 @@ namespace SimConnector
             {
                 if (!request.IsCompleted)
                 {
-                    _logger.LogDebug($"SimVar value received for {reference?.SimVarName}: {value}");
+                    _logger.LogTrace("SimVar value received for {SimVarName}: {Value}", reference?.SimVarName, value);
                     request.TaskCompletion.TrySetResult(value);
                 }
             }
@@ -109,10 +109,10 @@ namespace SimConnector
                 return await _clientDataService.GetClientDataValueAsync(reference);
             }
 
-            _logger.LogDebug($"GetSimVarValueAsync called with: SimVarName={reference?.SimVarName}, Unit={reference?.Unit}");
+            _logger.LogTrace("GetSimVarValueAsync called with: SimVarName={SimVarName}, Unit={Unit}", reference?.SimVarName, reference?.Unit);
             if (!_connection.IsConnected)
             {
-                _logger.LogDebug("SimConnect not connected, returning null");
+                _logger.LogTrace("SimConnect not connected; returning null for {SimVarName}", reference?.SimVarName);
                 return null;
             }
             var (uniqueId, isNew) = _idManager.GetOrAssignId(reference);

@@ -28,6 +28,7 @@ namespace SimConnector
         private Task? _queueProcessorTask;
         private CancellationTokenSource _connectionCts = new();
         private Task? _connectionMonitorTask;
+        private int _connectionAttempts;
 
         public event Action? OnConnected;
         public event Action? OnDisconnected;
@@ -144,8 +145,16 @@ namespace SimConnector
             }
         }
 
-        public void Disconnect()
+        public void Disconnect(string reason = "explicit disconnect")
         {
+            var wasConnected = IsConnected;
+            var hadInstance = _simConnect != null;
+            _logger.LogInformation(
+                "Disconnecting SimConnect: {Reason}; wasConnected={WasConnected}, hasInstance={HasInstance}",
+                reason,
+                wasConnected,
+                hadInstance);
+
             _messageTimer?.Dispose();
             _messageTimer = null;
             if (_simConnect != null)
@@ -155,20 +164,22 @@ namespace SimConnector
             }
             IsConnected = false;
             OnDisconnected?.Invoke();
+            _logger.LogInformation("SimConnect disconnected: {Reason}", reason);
         }
 
         public void RefreshConnection()
         {
             if (_simConnect != null)
             {
-                Disconnect();
+                Disconnect("RefreshConnection requested");
             }
             TryConnect();
         }
 
         private bool TryConnect()
         {
-            _logger.LogDebug("Attempting SimConnect connection.");
+            var attempt = Interlocked.Increment(ref _connectionAttempts);
+            _logger.LogInformation("Attempting SimConnect connection (attempt {Attempt})", attempt);
             try
             {
                 IntPtr hWnd = simConnectWindow.Handle;
@@ -181,28 +192,30 @@ namespace SimConnector
                 _simConnect.OnRecvSimobjectData += SimConnect_OnRecvSimVar;
                 _simConnect.OnRecvClientData += SimConnect_OnRecvClientData;
 
-                _logger.LogInformation("SimConnect connection established, starting message timer.");
-
+                _logger.LogInformation(
+                    "SimConnect handle created on attempt {Attempt}; waiting for OPEN notification",
+                    attempt);
                 _messageTimer = new System.Threading.Timer(
                     _ => ReceiveSimConnectMessages(),
                     null,
                     0,
-                    DISPATCH_INTERVAL_MS
-                );
-                // OnConnected will be invoked when OnRecvOpen is received
+                    DISPATCH_INTERVAL_MS);
                 return true;
             }
-            catch (COMException)
+            catch (COMException ex)
             {
                 IsConnected = false;
-                // This is expected if MSFS is not running
-                _logger.LogDebug("SimConnect unavailable (MSFS not running?). Retrying in 5s.");
+                _logger.LogDebug(
+                    ex,
+                    "SimConnect unavailable on attempt {Attempt} (HRESULT=0x{HResult:X8}); retrying in 5s",
+                    attempt,
+                    ex.HResult);
                 return false;
             }
             catch (Exception ex)
             {
                 IsConnected = false;
-                _logger.LogError(ex, "SimConnect general exception during connection.");
+                _logger.LogError(ex, "SimConnect connection failed on attempt {Attempt}", attempt);
                 return false;
             }
         }
@@ -215,26 +228,39 @@ namespace SimConnector
             }
             catch (COMException ex)
             {
-                _logger.LogWarning(ex, "COMException from ReceiveMessage - treating as disconnect.");
-                Disconnect();
+                _logger.LogWarning(
+                    ex,
+                    "ReceiveMessage failed (HRESULT=0x{HResult:X8}); requesting disconnect",
+                    ex.HResult);
+                Disconnect($"ReceiveMessage COMException 0x{ex.HResult:X8}");
             }
         }
 
         private void SimConnect_OnRecvException(SimConnect sender, SIMCONNECT_RECV_EXCEPTION data)
         {
+            _logger.LogWarning(
+                "SimConnect exception {ExceptionId}; sendId={SendId}, index={Index}, currentInstance={CurrentInstance}",
+                data.dwException,
+                data.dwSendID,
+                data.dwIndex,
+                ReferenceEquals(sender, _simConnect));
             OnRecvException?.Invoke(sender, data);
         }
 
         private void SimConnect_OnRecvQuit(SimConnect sender, SIMCONNECT_RECV data)
         {
-            _logger.LogInformation("SimConnect_OnRecvQuit");
+            _logger.LogInformation(
+                "SimConnect_OnRecvQuit received; currentInstance={CurrentInstance}",
+                ReferenceEquals(sender, _simConnect));
             OnRecvQuit?.Invoke(sender, data);
-            Disconnect();
+            Disconnect("SimConnect_OnRecvQuit");
         }
 
         private void SimConnect_OnRecvOpen(SimConnect sender, SIMCONNECT_RECV_OPEN data)
         {
-            _logger.LogInformation("SimConnect_OnRecvOpen");
+            _logger.LogInformation(
+                "SimConnect_OnRecvOpen received; currentInstance={CurrentInstance}",
+                ReferenceEquals(sender, _simConnect));
             OnConnected?.Invoke();
             OnRecvOpen?.Invoke(sender, data);
         }
@@ -358,22 +384,53 @@ namespace SimConnector
             if (string.IsNullOrWhiteSpace(eventName)) return;
             Enqueue(sim =>
             {
-                sim.MapClientEventToSimEvent((EVENT)simEventNum, eventName);
-                sim.AddClientEventToNotificationGroup((GROUP_ID)0, (EVENT)simEventNum, false);
+                try
+                {
+                    sim.MapClientEventToSimEvent((EVENT)simEventNum, eventName);
+                    sim.AddClientEventToNotificationGroup((GROUP_ID)0, (EVENT)simEventNum, false);
+                    _logger.LogDebug("SimConnect event registration completed: {EventName} id={EventId}", eventName, simEventNum);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "SimConnect event registration failed: {EventName} id={EventId}", eventName, simEventNum);
+                    throw;
+                }
             });
         }
 
-        public void TransmitSimEvent(int simEventNum, uint value)
+        public void TransmitSimEvent(int simEventNum, uint value, string eventName)
         {
             Enqueue(sim =>
             {
-                sim.TransmitClientEvent(
-                    SimConnect.SIMCONNECT_OBJECT_ID_USER,
-                    (EVENT)simEventNum,
-                    value,
-                    (GROUP_ID)0,
-                    SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY
-                );
+                _logger.LogInformation(
+                    "Calling TransmitClientEvent: {EventName} id={EventId} value={Value}",
+                    eventName,
+                    simEventNum,
+                    value);
+                try
+                {
+                    sim.TransmitClientEvent(
+                        SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                        (EVENT)simEventNum,
+                        value,
+                        (GROUP_ID)0,
+                        SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+                    _logger.LogDebug(
+                        "TransmitClientEvent call returned: {EventName} id={EventId} value={Value}",
+                        eventName,
+                        simEventNum,
+                        value);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "TransmitClientEvent call failed: {EventName} id={EventId} value={Value}",
+                        eventName,
+                        simEventNum,
+                        value);
+                    throw;
+                }
             });
         }
 
@@ -384,7 +441,7 @@ namespace SimConnector
             _connectionCts.Cancel();
             try { _queueProcessorTask?.Wait(1000); } catch { /* ignore */ }
             try { _connectionMonitorTask?.Wait(1000); } catch { /* ignore */ }
-            Disconnect();
+            Disconnect("Shutdown");
             simConnectWindow.Destroy();
         }
     }

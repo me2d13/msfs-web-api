@@ -26,7 +26,10 @@ namespace SimConnector
             }
             if (!_connection.IsConnected)
             {
-                _logger.LogWarning("SimConnect not connected. Event not sent.");
+                _logger.LogWarning(
+                    "SimConnect not connected; dropping event {EventName} value {Value}.",
+                    eventReference.Name,
+                    eventReference.Value);
                 return;
             }
             try
@@ -34,16 +37,28 @@ namespace SimConnector
                 if (!_registeredEvents.TryGetValue(eventReference.Name, out var simEventNum))
                 {
                     simEventNum = _nextEventId++;
-                    _logger.LogInformation($"Registering {eventReference.Name} under id {simEventNum}");
+                    _logger.LogInformation(
+                        "Registering SimConnect event {EventName} under id {EventId}",
+                        eventReference.Name,
+                        simEventNum);
                     _connection.RegisterSimEvent(simEventNum, eventReference.Name);
                     _registeredEvents.TryAdd(eventReference.Name, simEventNum);
                 }
-                _connection.TransmitSimEvent(simEventNum, eventReference.Value);
-                _logger.LogInformation($"Sent event: {eventReference.Name}");
+
+                _connection.TransmitSimEvent(simEventNum, eventReference.Value, eventReference.Name);
+                _logger.LogInformation(
+                    "Queued SimConnect event {EventName} id {EventId} value {Value}",
+                    eventReference.Name,
+                    simEventNum,
+                    eventReference.Value);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error sending event: {eventReference.Name}");
+                _logger.LogError(
+                    ex,
+                    "Error queueing SimConnect event {EventName} value {Value}",
+                    eventReference.Name,
+                    eventReference.Value);
             }
         }
     }
